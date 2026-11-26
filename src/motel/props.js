@@ -271,10 +271,12 @@ export function car(color = '#3cc7b8', accent = '#f4efe2', { wagon = true, seed 
   box(g, 1.95, 0.16, 0.12, chrome, 0, 0.42, -L / 2 - 0.03)
   box(g, 1.1, 0.24, 0.04, chrome, 0, 0.66, L / 2 + 0.02)
   const headlight = new MeshStandardMaterial({ color: '#fffbe0', emissive: '#fff2b0', emissiveIntensity: 0.3 })
+  const tail = new MeshStandardMaterial({ color: '#d92020', emissive: '#ff2020', emissiveIntensity: 0.2 })
   for (const s of [-0.72, 0.72]) {
     mesh(g, new CylinderGeometry(0.12, 0.12, 0.05, 12), headlight, s, 0.68, L / 2 + 0.02).rotation.x = Math.PI / 2
-    box(g, 0.24, 0.14, 0.04, mat('#d92020', { emissive: '#ff2020', emissiveIntensity: 0.2 }), s, 0.68, -L / 2 - 0.01)
+    box(g, 0.24, 0.14, 0.04, tail, s, 0.68, -L / 2 - 0.01)
   }
+  g.userData.lights = { head: headlight, tail } // driven by game/cars.js
   // Wheels with whitewalls and hubcaps.
   const tyre = mat('#1d1d1f', { roughness: 0.9 })
   const wall = mat('#f5f2ea', { roughness: 0.6 })

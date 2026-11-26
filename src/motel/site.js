@@ -27,7 +27,7 @@ import { mulberry32 } from '../textures.js'
 import { box, C, canvasTex, mat, rbox, textures } from './kit.js'
 import { paintSign, paintTile, tex } from './paint.js'
 import { dressPool } from './poolside.js'
-import { bush, busStop, cactus, car, dumpster, junk, mailbox, palm, rock, streetLamp, trashBag, tree } from './props.js'
+import { bush, busStop, cactus, dumpster, junk, mailbox, palm, rock, streetLamp, trashBag, tree } from './props.js'
 
 const PLOT_HALF = WORLD.plot.x1 // half the plot's width (the plot is centred on x = 0)
 
@@ -535,22 +535,7 @@ function buildLandscape(scene, lighting) {
     lighting?.addLamp(x, 6.8, z, l.bulb)
     lampBulbs.push(l.bulb)
   }
-  // Parked cars nose-in at the rooms + one in the far row.
-  const cars = [
-    [-10.4, 2.6, '#3cc7b8', '#f4efe2', true],
-    [-7.2, 2.6, '#43c9b5', '#f6f0e4', true],
-    [-0.8, 2.6, '#e0322a', '#9fe08a', false],
-    [2.4, 2.6, '#2f6fd0', '#f4efe2', false],
-    [-4, 13.6, '#f2c232', '#fff6e5', true],
-    [2.4, 13.6, '#3cc7b8', '#f4efe2', false],
-    [-10.4, 18.8, '#e0322a', '#fff6e5', true],
-    [-0.8, 18.8, '#2f6fd0', '#f4efe2', true],
-  ]
-  cars.forEach(([x, z, c, a, wagon], i) => {
-    const cr = car(c, a, { wagon, seed: i })
-    add(cr, x, z, Math.PI)
-    solid(1.0, 0.9, 2.35, x, 0.9, z)
-  })
+  // No parked cars here: guests' cars drive in and out of the lot (game/cars.js).
   // Mailbox by the monument, bus stop on the sidewalk.
   add(mailbox(), LAYOUT.monument.x + 5.2, LAYOUT.monument.z + 1.6, -0.3)
   addFixed(RAPIER.ColliderDesc.cylinder(0.8, 0.2), { x: LAYOUT.monument.x + 5.2, y: 0.8, z: LAYOUT.monument.z + 1.6 })

@@ -22,6 +22,7 @@ import { makePerson, randomLook, Walker } from '../motel/people.js'
 import { mat } from '../motel/kit.js'
 import { interiorMats } from '../motel/rooms.js'
 import { createCleaning, TOOL_KEY } from './clean.js'
+import { createCars } from './cars.js'
 import { createCurb } from './curb.js'
 import { createFood } from './food.js'
 import { busGap, busGuests, patienceMul, rushHour, setPacing, spawnMul } from './pacing.js'
@@ -502,6 +503,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     return true
   }
   const flyingKeys = []
+  const cars = createCars({ scene, fx })
   // Desk step 3: TAKE $. The guest pays (bills to the counter pile) and walks to the room.
   function takePayment(byClerk = false) {
     const g = front()
@@ -518,6 +520,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     if (!byClerk) hud.announce(`WELCOME! · ROOM ${rs.r.number}`, `${g.nights} night${g.nights > 1 ? 's' : ''} · $${g.pay}`, 2.4)
     const r = rs.r
     g.stage = 'toRoom'
+    g.car = cars.arrive() // their car drives in and parks on the lot (none when the lot is full)
     const bp = r.interior.bedPoint
     g.w.go([[DOOR_X, FRONT - 1.6], [DOOR_X, WALK_Z], [r.doorX, WALK_Z], [r.doorX, FRONT + 0.8], [r.doorX, FRONT - 1.4], [bp.x + 0.6, bp.z]], () => {
       g.stage = 'inRoom'
@@ -567,6 +570,18 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     hud.float(new Vector3(r.doorX, 2.9, FRONT + 0.6), '★'.repeat(Math.round(score)), '#ffd34a')
     g.w.x = r.doorX
     g.w.z = FRONT - 1.4
+    const car = g.car
+    if (car && car.state === 'parked') {
+      // Walk to the car through the gap beside it, get in, and drive off.
+      const gx = car.x + 1.6
+      g.w.go([[r.doorX, FRONT + 0.8], [r.doorX, WALK_Z], [gx, WALK_Z], [gx, car.z]], () => {
+        g.p.group.visible = false
+        cars.depart(car)
+        removeGuest(g)
+      })
+      return
+    }
+    cars.depart(car)
     g.w.go([[r.doorX, FRONT + 0.8], [r.doorX, WALK_Z], [SPINE_X, WALK_Z], [SPINE_X, LOT_Z], [SPINE_X, STREET_Z], [ROAD_EXIT_X, STREET_Z]], () => removeGuest(g))
   }
   // The room as a guest leaves it: used bed, trash, dust, stains, mud, a dirty bathroom.
@@ -1244,6 +1259,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     laundry.clock[0].rotation.z = -((d.getHours() % 12) / 12) * Math.PI * 2
     laundry.clock[1].rotation.z = -(d.getMinutes() / 60) * Math.PI * 2
 
+    cars.update(dt)
     // Guests.
     for (const g of [...guests]) {
       g.w.update(dt, floorAt)

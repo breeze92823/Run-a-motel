@@ -119,6 +119,10 @@ export function addFixedBoxFor(mesh, opts) {
   return addFixed(RAPIER.ColliderDesc.cuboid((p.width * s.x) / 2, (p.height * s.y) / 2, (p.depth * s.z) / 2), mesh.position, mesh.quaternion, opts)
 }
 
+export function removeCollider(collider) {
+  if (collider && world) world.removeCollider(collider, true)
+}
+
 export function removeBody(body) {
   world.removeRigidBody(body)
 }
