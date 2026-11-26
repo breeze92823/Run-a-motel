@@ -499,7 +499,8 @@ export class Walker {
     this.moving = 0
     person.group.position.set(x, y, z)
   }
-  go(path, onArrive = null, speed = 2.6) {
+  // `pace` (set per person, default 1) makes some people stroll and others hurry.
+  go(path, onArrive = null, speed = 2.6 * (this.pace ?? 1)) {
     this.path = path.map(([x, z]) => [x, z])
     this.onArrive = onArrive
     this.speed = speed

@@ -194,7 +194,7 @@ function loopNode(kind, pos) {
   g.connect(p)
   const nodes = []
   if (kind === 'fountain') {
-    for (const [f, q, v] of [[600, 0.6, 0.5], [2400, 0.8, 0.25]]) {
+    for (const [f, q, v] of [[450, 0.5, 0.22], [1100, 0.6, 0.04]]) {
       const s = ctx.createBufferSource()
       s.buffer = noiseBuf
       s.loop = true

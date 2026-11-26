@@ -11,7 +11,7 @@
 // motel gets no guests. Also: junk yard, dumpster, fountain, pool, furnishing rooms.
 // Money, upgrades, staff and room furniture live in the shared economy (bank).
 import { BoxGeometry, Mesh, MeshStandardMaterial, PlaneGeometry, PointLight, Vector3 } from 'three'
-import { CURB, DRIVE_IN, ECONOMY, LAYOUT, PACING, PHYSICS } from '../config.js'
+import { CURB, DRIVE_IN, ECONOMY, LAYOUT, PACING, PHYSICS, QUEUE } from '../config.js'
 import { bank, call, openPanel, panelOpen } from './bank.js'
 import { createHud } from './hud.js'
 import { createDecor, decorSfx } from '../decor/index.js'
@@ -66,6 +66,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     rating: ECONOMY.startRating,
     busTimer: ECONOMY.firstBus,
     carTimer: DRIVE_IN.first,
+    calmUntil: 0, // no drive-ins until then (just after a bus)
     nextTour: false,
     holdKey: false,
     holdT: 0,
@@ -395,15 +396,31 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     const p = makePerson(look)
     scene.add(p.group)
     const w = new Walker(p, x, z, 0.18)
+    w.pace = rnd(0.82, 1.18) // people walk at their own speed: no marching in step
     const typeIdx = tourist ? 1 : look.hat === 'cap' ? 2 : look.hat === 'cowboy' ? 3 : look.hairStyle === 2 && look.hair === '#d9d4cc' ? 5 : look.suitcase ? 0 : 4
     // Wealth: richer guests come when the motel is clean and the rooms look good.
     const tier = pre
     const want = tier.minStars >= 5 ? '5-star' : tier.minStars >= 3 ? 'comfort' : 'regular'
-    const g = { id: guestSeed, p, w, tourist, want, tier, auraT: 0, nights: rndi(...ECONOMY.nights), type: GUEST_TYPES[typeIdx], stage: 'arriving', patience: ECONOMY.deskPatience * (tier?.patience ?? 1) * patienceMul(), room: null, stay: 0 }
+    const g = { id: guestSeed, p, w, look, tourist, want, tier, auraT: 0, nights: rndi(...ECONOMY.nights), type: GUEST_TYPES[typeIdx], stage: 'arriving', patience: ECONOMY.deskPatience * (tier?.patience ?? 1) * patienceMul(), room: null, stay: 0 }
     if (car) g.car = car // a drive-in guest: they walk back to it when they leave
     guests.push(g)
+    // Nobody waits in a line longer than QUEUE.max: they get angry and go at once.
+    if (queue.length >= QUEUE.max) return turnAway(g)
     queue.push(g)
     routeQueue()
+    return g
+  }
+  function turnAway(g) {
+    g.stage = 'leaving'
+    rate(QUEUE.fullScore, QUEUE.fullWeight)
+    play('error')
+    hud.float(new Vector3(g.w.x, 2.4, g.w.z), '😠 too long!', '#ff7a6a')
+    if (clock - (S.fullToastAt ?? -99) > 8) {
+      S.fullToastAt = clock
+      hud.toast('The line is too long: a guest left angry 😠 · check guests in faster')
+    }
+    if (leaveByCar(g, [])) return g
+    g.w.go([[ROAD_EXIT_X, STREET_Z]], () => removeGuest(g))
     return g
   }
   // A drive-in guest: the car parks, the guest gets out beside it and walks to the office.
@@ -1068,12 +1085,16 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     PHYSICS.walkSpeed = baseWalk * slow
     PHYSICS.sprintSpeed = baseSprint * slow
 
-    // Drive-in guests between buses (always, clean rooms or not: they wait while you clean).
+    // Drive-in guests between buses (clean rooms or not: they wait while you clean). Natural, not
+    // a steady stream: random gaps with quiet spells, rarer while someone already waits, none
+    // right after a bus.
     S.carTimer -= dt
     if (S.carTimer <= 0) {
       const slow = S.appeal < CURB.fewestBelow ? CURB.lowSlow * 2 : S.appeal < CURB.fewerBelow ? CURB.lowSlow : 1
-      S.carTimer = (rnd(...DRIVE_IN.every) / (1 + pacing.heat * DRIVE_IN.perHeat)) * slow
-      if (queue.length < DRIVE_IN.maxQueue) driveIn()
+      const mean = (DRIVE_IN.mean / (1 + pacing.heat * DRIVE_IN.perHeat)) * slow
+      S.carTimer = Math.min(DRIVE_IN.maxGap * slow, Math.max(DRIVE_IN.minGap, -Math.log(1 - Math.random()) * mean))
+      const room = queue.length < QUEUE.max && (queue.length === 0 || Math.random() < DRIVE_IN.whileWaiting)
+      if (room && clock >= S.calmUntil) driveIn()
     }
 
     // Bus schedule.
@@ -1257,6 +1278,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
       if (rs.state !== 'locked') {
         if (rs.state !== 'occupied' && near(r.doorX, FRONT, 2.2)) open = true
         for (const g of guests) if (g.room === rs && (g.stage === 'toRoom' || g.stage === 'leaving') && dist2(g.w.x, g.w.z, r.doorX, FRONT) < 6) open = true
+        for (const c of food.customers) if (c.rs === rs && dist2(c.w.x, c.w.z, r.doorX, FRONT) < 6) open = true // a guest out for food
         const rose = staff.rose
         if (rose && rose.task === rs && dist2(rose.w.x, rose.w.z, r.doorX, FRONT) < 6) open = true
       }
@@ -1531,7 +1553,8 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
 
   function busStopped(tourists) {
     play('brakes', { x: bus.x, y: 1, z: LAYOUT.busLaneZ })
-    const free = LAYOUT.queue.length - queue.length
+    // Places left in the desk line + up to QUEUE.turnAway who turn up to a full line and leave.
+    const free = Math.max(0, QUEUE.max - queue.length) + QUEUE.turnAway
     const openN = roomState.filter((rs) => rs.state !== 'locked').length
     // Demand grows with the motel (pacing.js): more rooms, more guests per bus; now and then a rush.
     const rush = rushHour(openN)
@@ -1551,7 +1574,13 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
       hud.toast(`1 guest stayed on the bus · curb appeal ${ap}%: clean outside for more`)
     }
     const dp = bus.doorPoint
-    for (let i = 0; i < n; i++) setTimeout(() => spawnGuest(dp.x - i * 0.3, dp.z + 0.2, tourists), i * 900)
+    // They step off one by one at uneven intervals (and then walk at their own pace).
+    let at = 0
+    for (let i = 0; i < n; i++) {
+      setTimeout(() => spawnGuest(dp.x - i * 0.3, dp.z + 0.2, tourists), at)
+      at += rnd(1200, 3400)
+    }
+    S.calmUntil = clock + DRIVE_IN.afterBus + at / 1000
     setTimeout(() => {
       bus.depart()
       // A good rating and a bigger motel bring the bus sooner; adverts sooner still (never under minBusGap).
@@ -1560,7 +1589,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
       S.busTimer = Math.max(PACING.minBusGap, rnd(ge[0], ge[1]))
       S.nextTour = Math.random() < ECONOMY.touristChance
       play('horn', { x: bus.x, y: 2, z: LAYOUT.busLaneZ })
-    }, n * 900 + 2500)
+    }, at + 2500)
   }
 
   return { update, hud, state: S, decor }

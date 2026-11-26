@@ -1,5 +1,5 @@
 // Food and room service.
-// - Walk-in customers come into the office for a coffee (later hot dogs and burgers),
+// - Guests staying in a room walk to the office for a coffee (later hot dogs and burgers),
 //   wait at FOOD PICKUP and pay onto the counter's cash pile when served.
 // - Guests in their rooms call the front desk: the red phone rings; ANSWER THE PHONE
 //   gives a timed order ("Room 101 wants a hot dog · get it from the GRILL · 1:28")
@@ -55,11 +55,12 @@ export function createFood(ctx) {
     if (ks.length === 1 || Math.random() < 0.55) return 'coffee'
     return ks[1 + Math.floor(Math.random() * (ks.length - 1))]
   }
-  function spawnWalkIn() {
-    const p = makePerson(randomLook(seed++ * 17))
+  // A guest staying in room `rs` steps out (same look as the guest) and walks to FOOD PICKUP.
+  function spawnWalkIn(rs) {
+    const p = makePerson(rs.guest?.look ?? randomLook(seed++ * 17))
     scene.add(p.group)
-    const w = new Walker(p, -34, P.STREET_Z + 0.4, 0.18)
-    const c = { p, w, kind: pickKind(), stage: 'arriving', patience: FOOD_RULES.walkInPatience, slot: -1 }
+    const w = new Walker(p, rs.r.doorX, FRONT - 1.4, 0.18)
+    const c = { p, w, rs, kind: pickKind(), stage: 'arriving', patience: FOOD_RULES.walkInPatience, slot: -1 }
     customers.push(c)
     routeQueue()
   }
@@ -75,7 +76,7 @@ export function createFood(ctx) {
         return
       }
       const pts = first
-        ? [[P.SPINE_X, P.STREET_Z + 0.4], [P.SPINE_X, P.LOT_Z], [P.SPINE_X, FRONT + 2.2], [P.DOOR_X, FRONT + 1.4], [P.DOOR_X, FRONT - 1.6], [tx + 0.6, -8.2], [tx, tz]]
+        ? [[c.rs.r.doorX, FRONT + 0.8], [c.rs.r.doorX, P.WALK_Z], [P.DOOR_X, P.WALK_Z], [P.DOOR_X, FRONT + 1.4], [P.DOOR_X, FRONT - 1.6], [tx + 0.6, -8.2], [tx, tz]]
         : [[tx, tz]]
       c.w.go(pts, () => {
         c.stage = 'waiting'
@@ -89,7 +90,9 @@ export function createFood(ctx) {
       ctx.rate(1.8)
       hud.toast(`A customer got tired of waiting for ${FOOD[c.kind].name.toLowerCase()} 😠`)
     }
-    c.w.go([[P.DOOR_X + 0.3, -7.8], [P.DOOR_X, FRONT - 1.6], [P.DOOR_X, P.WALK_Z], [P.SPINE_X, P.WALK_Z], [P.SPINE_X, P.LOT_Z], [P.SPINE_X, P.STREET_Z + 0.4], [P.EXIT_X, P.STREET_Z + 0.4]], () => {
+    // Back to their room.
+    const dx = c.rs.r.doorX
+    c.w.go([[P.DOOR_X + 0.3, -7.8], [P.DOOR_X, FRONT - 1.6], [P.DOOR_X, P.WALK_Z], [dx, P.WALK_Z], [dx, FRONT + 0.8], [dx, FRONT - 1.4]], () => {
       scene.remove(c.p.group)
       customers.splice(customers.indexOf(c), 1)
     })
@@ -114,10 +117,18 @@ export function createFood(ctx) {
 
   // --- Phone + room service ----------------------------------------------------------------------
   function onGuestSettled(rs) {
+    rs.outings = 0
     if (Math.random() > FOOD_RULES.callChance + (openKinds().length - 1) * 0.12) return
     rs.callT = rnd(...FOOD_RULES.callDelay)
   }
   function onGuestLeft(rs) {
+    // Their room's customer (out buying food) goes with them.
+    for (let i = customers.length - 1; i >= 0; i--) {
+      if (customers[i].rs !== rs) continue
+      scene.remove(customers[i].p.group)
+      customers.splice(i, 1)
+    }
+    routeQueue()
     rs.callT = 0
     if (phone.ringing?.rs === rs) phone.ringing = null
     for (let i = roomOrders.length - 1; i >= 0; i--) if (roomOrders[i].rs === rs) roomOrders.splice(i, 1)
@@ -438,8 +449,15 @@ export function createFood(ctx) {
     const fewer = appeal < CURB.fewestBelow ? CURB.lowSlow * 2 : appeal < CURB.fewerBelow ? CURB.lowSlow : 1
     walkInT -= (dt * walkInMul()) / fewer
     if (walkInT <= 0) {
-      walkInT = rnd(...FOOD_RULES.walkInEvery)
-      if (customers.filter((c) => c.stage !== 'leaving' && c.stage !== 'served').length < FOOD_RULES.walkInMax) spawnWalkIn()
+      // Only a guest staying in a room goes out for food (never an outsider).
+      const out = customers.filter((c) => c.stage !== 'leaving' && c.stage !== 'served').length
+      const who = rooms.filter((rs) => rs.state === 'occupied' && rs.guest && !customers.some((c) => c.rs === rs) && (rs.outings ?? 0) < FOOD_RULES.outingsPerStay)
+      if (who.length && out < FOOD_RULES.walkInMax) {
+        const rs = who[Math.floor(Math.random() * who.length)]
+        rs.outings = (rs.outings ?? 0) + 1
+        walkInT = rnd(...FOOD_RULES.walkInEvery)
+        spawnWalkIn(rs)
+      } else walkInT = 4
     }
     for (const c of [...customers]) {
       c.w.update(dt, floorAt)

@@ -427,11 +427,25 @@ export const ECONOMY = {
 // --- Drive-in guests (game.js driveIn, game/cars.js): between buses guests come by car, park on
 // the lot and walk to the office, whether a room is ready or not (they wait while you clean), so
 // there is always someone to serve. They drive off again at checkout (or if they give up).
+// The desk line: only `max` guests wait at the desk. Anyone who arrives to a longer line gets angry
+// and leaves at once (rating -), so a bus brings at most `turnAway` more than the free places.
+export const QUEUE = {
+  max: 2,
+  turnAway: 1, // guests per bus that may turn up to a full line and leave
+  fullScore: 2, // the review a guest who left a full line gives
+  fullWeight: 0.6, // how far that review moves the motel rating (1 = a normal review)
+}
+
 export const DRIVE_IN = {
   first: 6, // s until the first car
-  every: [20, 32], // s between cars at heat 0; / (1 + heat x perHeat) as the motel grows
+  // Natural arrivals, not a steady stream: the gap is random (exponential around `mean`, so a car
+  // sometimes follows soon and sometimes nobody comes for a minute), clamped to minGap..maxGap.
+  mean: 26, // s average gap at heat 0; / (1 + heat x perHeat) as the motel grows
+  minGap: 8,
+  maxGap: 70,
   perHeat: 0.5,
-  maxQueue: 3, // no new car while this many guests already wait at the desk
+  whileWaiting: 0.35, // chance a car still comes when a guest already waits at the desk (none when the line is full: QUEUE.max)
+  afterBus: 20, // s with no cars after a bus dropped its guests
 }
 
 export const PACING = {
@@ -472,9 +486,12 @@ export const FOOD = {
   },
 }
 export const FOOD_RULES = {
-  walkInEvery: [20, 34], // s between walk-in customers at the office (coffee from the start)
+  // Food / coffee buyers are only guests staying in a room: one steps out of their room, walks to
+  // FOOD PICKUP, and goes back to the room when served (no outsiders walk in from the street).
+  walkInEvery: [20, 34], // s between trips to the office (any occupied room); retries in 4 s if none
   walkInFirst: 8,
   walkInMax: 3,
+  outingsPerStay: 2, // trips one guest makes per stay
   walkInPatience: 80, // s a walk-in waits for the order
   callChance: 0.6, // a guest in a room calls room service once per stay
   callDelay: [5, 14], // s after they settle in
