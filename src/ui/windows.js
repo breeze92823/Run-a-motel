@@ -7,7 +7,7 @@ import { art, GIFT_ART } from './art.js'
 import { sfx } from '../audio.js'
 import { coinBurst, confetti, counter, floatText, money, pulse } from './fx.js'
 import { adsAvailable, showRewarded } from '../bloxity.js'
-import { claimAdReward } from '../net.js'
+import { claimAdReward, franchiseAndReload } from '../net.js'
 import { AD_REWARD } from '../catalog.js'
 
 const TAB_ART = { coffee: 'tabCoffee', rooms: 'tabRooms', ads: 'tabAds' }
@@ -242,18 +242,50 @@ export function createWindows({ reservedTop = () => 0 } = {}) {
     btn.addEventListener('click', () => {
       const g = economy.nextGoal()
       if (!g.action) return sfx('tap')
+      if (g.action.kind === 'franchise') return franchiseClick(g, card, btn)
       const price = g.action.price
       if (!economy.canAfford(price)) return feedback({ ok: false, reason: 'money' }, card, btn)
       const ok = g.action.run()
       feedback({ ok, reason: ok ? '' : 'money' }, card, btn, { price })
     })
     const update = () => {
+      if (btn._hold) return // the franchise button is asking / saving
       const g = economy.nextGoal()
       btn.style.display = g.action ? '' : 'none'
-      if (g.action) paintButton(btn, priced(g.action.label, g.action.price), { base: 30, avail: 230 })
+      if (g.action) paintButton(btn, g.action.price > 0 ? priced(g.action.label, g.action.price) : { kind: 'buy', label: g.action.label }, { base: 30, avail: 230 })
     }
     updaters.push(update)
     update()
+  }
+  // The franchise (rebirth) wipes the motel, so it asks first: tap once to arm, again to sell.
+  // The new motel is stored on the server before the page reloads (net.js franchiseAndReload).
+  function franchiseClick(g, card, btn) {
+    const say = (label, ms) => {
+      btn._key = ''
+      paintButton(btn, { kind: 'buy', label }, { base: 30, avail: 230 })
+      clearTimeout(btn._holdT)
+      if (ms) btn._holdT = setTimeout(() => ((btn._hold = false), (btn._key = ''), refresh()), ms)
+    }
+    if (btn._busy) return
+    if (!btn._hold) {
+      btn._hold = true
+      sfx('tap')
+      pulse(btn, 'bought')
+      return say(g.action.confirm ?? 'SURE?', 4000)
+    }
+    btn._busy = true
+    say('SAVING…')
+    franchiseAndReload().then((res) => {
+      btn._busy = false
+      if (res.ok) {
+        sfx('hire')
+        confetti(btn, 40)
+        return say('OPENING YOUR NEW MOTEL…')
+      }
+      sfx('fail')
+      pulse(card, 'shake')
+      say(res.reason === 'offline' ? 'NOT CONNECTED · TRY AGAIN' : res.reason === 'save' ? 'SIGN IN TO SAVE IT FIRST' : 'NOT READY YET', 3000)
+    })
   }
   // Swap in a fresh NEXT card when the goal moved on (with a celebration).
   function refreshGoal() {

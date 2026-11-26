@@ -13,6 +13,7 @@ import { Vector3 } from 'three'
 import { FOOD, FOOD_RULES, CURB, LAYOUT } from '../config.js'
 import { makeFood } from '../motel/kitchen.js'
 import { makePerson, randomLook, Walker } from '../motel/people.js'
+import { walkInMul } from './pacing.js'
 
 const rnd = (a, b) => a + Math.random() * (b - a)
 const mmss = (s) => {
@@ -434,7 +435,7 @@ export function createFood(ctx) {
     }
     // Walk-ins.
     const fewer = appeal < CURB.fewerBelow ? 1.7 : 1
-    if (appeal >= CURB.noGuestsBelow) walkInT -= dt / fewer
+    if (appeal >= CURB.noGuestsBelow) walkInT -= (dt * walkInMul()) / fewer
     if (walkInT <= 0) {
       walkInT = rnd(...FOOD_RULES.walkInEvery)
       if (customers.filter((c) => c.stage !== 'leaving' && c.stage !== 'served').length < FOOD_RULES.walkInMax) spawnWalkIn()

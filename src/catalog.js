@@ -34,19 +34,19 @@ export const UPGRADES = {
     title: 'ROOMS',
     tab: 'ROOMS',
     items: [
-      { id: 'nextRoom', name: 'NEXT ROOM', desc: 'More rooms upstairs - fix up the 2nd floor', price: 1500, grow: 1.35, kind: 'repeat', lock: { owns: 'floor2' }, art: 'door' },
+      { id: 'nextRoom', name: 'NEXT ROOM', desc: 'More rooms upstairs - fix up the 2nd floor', price: 3000, grow: 1.6, kind: 'repeat', lock: { owns: 'floor2' }, art: 'door' },
       { id: 'towelElephant', name: 'TOWEL ELEPHANT', desc: 'Fold 4-step towel animals · tips up to 20%', price: 400, kind: 'once', tips: 0.2, lock: { comfort: 1 }, art: 'towels' },
       { id: 'towelPeacock', name: 'TOWEL PEACOCK', desc: 'Fold 5-step towel birds · tips up to 30%', price: 1100, kind: 'once', tips: 0.3, lock: { owns: 'towelElephant' }, art: 'towels' },
-      { id: 'floor2', name: '2ND FLOOR', desc: 'Fix up the stairs: 4 more rooms upstairs', price: 6000, kind: 'once', lock: { owns: 'pool' }, art: 'floor2' },
+      { id: 'floor2', name: '2ND FLOOR', desc: 'Fix up the stairs: 4 more rooms upstairs', price: 9000, kind: 'once', lock: { owns: 'pool' }, art: 'floor2' },
     ],
   },
   ads: {
     title: 'ADVERTISING',
     tab: 'ADS',
     items: [
-      { id: 'flyers', name: 'FLYERS', desc: 'Guests come faster: 5-8 s for 2 min', price: 40, kind: 'boost', seconds: 120, guestEvery: [5, 8], art: 'flyers' },
-      { id: 'radio', name: 'RADIO AD', desc: 'Guests come faster: 5-8 s for 4 min', price: 150, kind: 'boost', seconds: 240, guestEvery: [5, 8], art: 'radio' },
-      { id: 'billboard', name: 'BILLBOARD', desc: 'Guests never take more than 14 s - for ever', price: 1500, kind: 'once', guestMax: 14, lock: { comfort: 1 }, art: 'billboard' },
+      { id: 'flyers', name: 'FLYERS', desc: 'A bus every 15-20 s for 2 min', price: 40, kind: 'boost', seconds: 120, guestEvery: [15, 20], art: 'flyers' },
+      { id: 'radio', name: 'RADIO AD', desc: 'A bus every 15-20 s for 4 min', price: 150, kind: 'boost', seconds: 240, guestEvery: [15, 20], art: 'radio' },
+      { id: 'billboard', name: 'BILLBOARD', desc: 'A bus at least every 30 s - for ever', price: 1500, kind: 'once', guestMax: 30, lock: { comfort: 1 }, art: 'billboard' },
     ],
   },
 }
@@ -81,7 +81,19 @@ export const STAFF = [
 export const SPEED_STEP = 0.2 // +20% per speed level
 
 // --- NEXT card: the goal chain (economy.js nextGoal) ---------------------------------
-export const POOL_PRICE = 2500
+export const POOL_PRICE = 3500
+
+// --- Franchise (rebirth): sell the finished motel, start a new one that earns more for good. -----
+// Ready once the run's last building upgrade is owned and the run earned enough; each level
+// needs grow x more than the last (runs get longer) and makes heat (pacing.js) a bit higher.
+export const FRANCHISE = {
+  needs: 'floor2', // owned this run
+  earn: 40000, // $ earned this run for level 1
+  grow: 2.5, // x per level
+  payPerLevel: 0.5, // every guest and every order pays x(1 + level x payPerLevel), for good
+  startCash: 300, // + level x startCash on the new motel
+  max: 25,
+}
 
 // --- Shop window --------------------------------------------------------------------
 // Money prices replace the reference's Robux ones (fair, a little high). Sections:

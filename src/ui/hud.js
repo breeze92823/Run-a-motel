@@ -121,6 +121,10 @@ export function createHud({ open }) {
   economy.on('change', (why) => {
     num.set(economy.money, why === 'load')
     dots()
+    // A franchise just opened (the page reloaded onto the new motel, nothing earned yet).
+    if (why === 'load' && economy.franchiseLevel() > 0 && economy.franchiseRun() < 1) {
+      toast(`FRANCHISE ${economy.franchiseLevel()} IS OPEN!`, `A brand-new motel · every guest pays x${economy.franchiseMul()} for good`)
+    }
   })
   economy.on('offline', ({ amount, minutes }) => {
     toast('WELCOME BACK!', `Gus kept the motel running: +${money(amount)} (up to ${minutes} min)`)

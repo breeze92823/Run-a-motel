@@ -3,7 +3,7 @@
 // investments. The game loop (src/game/*) earns money and reads the effect getters below; this
 // module never simulates guests itself. The whole state is saved by net.js (snapshot/hydrate).
 import { ECONOMY, FOOD } from './config.js'
-import { AD_REWARD, MOTEL, SHOP, SPEED_STEP, STAFF, UPGRADES, POOL_PRICE } from './catalog.js'
+import { AD_REWARD, FRANCHISE, MOTEL, SHOP, SPEED_STEP, STAFF, UPGRADES, POOL_PRICE } from './catalog.js'
 import { evaluate, inUse } from './decor/rules.js'
 
 const UPGRADE_LIST = Object.values(UPGRADES).flatMap((t) => t.items)
@@ -16,9 +16,9 @@ const FOREVER = new Set(SHOP.forever.map((s) => s.id))
 const listeners = new Map() // event -> Set(fn)
 const saveSections = new Map() // key -> { snapshot, hydrate }
 
-function freshState() {
+function freshState(franchise = 0) {
   return {
-    money: ECONOMY?.startMoney ?? 150,
+    money: (ECONOMY?.startMoney ?? 150) + franchise * FRANCHISE.startCash,
     owned: [], // upgrade + forever shop ids, 'pool', 'starter'
     repeats: {}, // repeat upgrade id -> times bought (nextRoom)
     staff: Object.fromEntries(STAFF.filter((s) => s.startLevel).map((s) => [s.id, s.startLevel])), // id -> level (0 = hired, no speed)
@@ -28,7 +28,9 @@ function freshState() {
     rooms: Object.fromEntries(MOTEL.roomsAtStart.map((n) => [n, { open: true, furniture: [] }])),
     cosmetics: [],
     tourists: 0, // called by the bus, not yet spawned by the game
-    earned: 0, // lifetime income
+    earned: 0, // lifetime income (kept through a franchise: the leaderboard)
+    franchise, // franchise (rebirth) level: every guest pays more, for good
+    run: 0, // income since the last franchise (what the next one needs)
     lastSeen: 0,
   }
 }
@@ -72,6 +74,7 @@ export const economy = {
     if (!Number.isFinite(n) || n <= 0) return
     s.money += n
     s.earned += n
+    s.run += n
     recent.push([now(), n])
     emit('earn', { amount: n, reason })
     changed('money')
@@ -95,7 +98,7 @@ export const economy = {
   cosmetics: () => [...s.cosmetics],
 
   // --- Effects (read by the game loop) -------------------------------------------
-  payMul: () => (economy.has('cash50') ? 1.5 : 1) * (economy.has('cash2x') ? 2 : 1) * (boostLeft(AD_REWARD.id) > 0 ? AD_REWARD.pay : 1),
+  payMul: () => (economy.has('cash50') ? 1.5 : 1) * (economy.has('cash2x') ? 2 : 1) * (boostLeft(AD_REWARD.id) > 0 ? AD_REWARD.pay : 1) * economy.franchiseMul(),
   // The rewarded-ad boost (ui/windows.js, after the server checked the ad's token).
   grantAdBoost(id, seconds) {
     s.boosts[id] = Math.max(now(), s.boosts[id] ?? 0) + seconds * 1000
@@ -314,6 +317,27 @@ export const economy = {
   nextGoal: () => goals()[0],
   thenGoal: () => goals()[1] ?? null,
 
+  // --- Franchise (rebirth) -----------------------------------------------------------
+  // Sell the finished motel for a new one: money, rooms, furniture, upgrades, staff and the
+  // gameplay sections start over; the level (x pay for good), lifetime earnings and cosmetics stay.
+  franchiseLevel: () => s.franchise,
+  franchiseMul: (level = s.franchise) => 1 + level * FRANCHISE.payPerLevel,
+  franchiseNeed: () => Math.round(FRANCHISE.earn * Math.pow(FRANCHISE.grow, s.franchise)),
+  franchiseRun: () => s.run,
+  franchiseReady: () => s.franchise < FRANCHISE.max && economy.has(FRANCHISE.needs) && s.run >= economy.franchiseNeed(),
+  // The save of the new motel. The live state is untouched: net.js stores this doc, then the
+  // page reloads so every module builds the fresh motel from it. null when not ready.
+  franchiseDoc() {
+    if (!economy.franchiseReady()) return null
+    const next = freshState(s.franchise + 1)
+    return {
+      money: next.money, owned: [], repeats: {}, staff: { ...next.staff }, boosts: {}, charges: {}, invest: {},
+      rooms: Object.fromEntries(Object.entries(next.rooms).map(([n, r]) => [n, { open: true, furniture: [...r.furniture] }])),
+      cosmetics: [...s.cosmetics], tourists: 0, earned: Math.floor(s.earned), rate: 0, lastSeen: now(),
+      game: { franchise: { level: next.franchise, run: 0 } },
+    }
+  },
+
   // --- Offline income (Gus / Night Shift) -------------------------------------------
   incomePerSecond() {
     const t = now()
@@ -351,7 +375,7 @@ export const economy = {
       earned: Math.floor(s.earned),
       rate: Math.round(economy.incomePerSecond() * 100) / 100,
       lastSeen: now(),
-      game,
+      game: { ...game, franchise: { level: s.franchise, run: Math.floor(s.run) } },
     }
   },
   // Loads a saved motel (or a fresh one for null). Returns the offline earnings granted.
@@ -374,6 +398,10 @@ export const economy = {
       if (Array.isArray(doc.cosmetics)) s.cosmetics = [...doc.cosmetics]
       if (Number.isFinite(doc.tourists)) s.tourists = doc.tourists
       if (Number.isFinite(doc.earned)) s.earned = doc.earned
+      const fr = doc.game?.franchise
+      if (Number.isFinite(fr?.level)) s.franchise = Math.max(0, Math.min(FRANCHISE.max, Math.floor(fr.level)))
+      // A save from before franchises: this motel's income so far counts for the first one.
+      s.run = Number.isFinite(fr?.run) ? Math.max(0, fr.run) : s.earned
       for (const [k, sec] of saveSections) {
         if (doc.game?.[k] !== undefined) {
           try {
@@ -401,6 +429,7 @@ export const economy = {
 }
 
 // --- helpers ------------------------------------------------------------------------
+const fmt = (n) => `$${Math.max(0, Math.ceil(n)).toLocaleString('en-US')}`
 function fail(reason) {
   emit('failed', { reason })
   return { ok: false, reason }
@@ -500,6 +529,21 @@ function goals() {
       action: economy.has('pool') ? { label: 'FIX UP', price, run: () => economy.buyUpgrade('floor2').ok } : null,
     })
   }
+  // The franchise (rebirth) closes every run, once the run's last building upgrade is owned
+  // (before the all-rooms 5-star goal below, which can take far longer).
+  if (economy.has(FRANCHISE.needs) && economy.franchiseLevel() < FRANCHISE.max) {
+    const need = economy.franchiseNeed()
+    const run = economy.franchiseRun()
+    const ready = economy.franchiseReady()
+    const lvl = economy.franchiseLevel() + 1
+    list.push({
+      id: `franchise${lvl}`, title: `FRANCHISE ${lvl}`, sub: `Sell this motel, open a new one: guests pay x${economy.franchiseMul(lvl)} for good`,
+      hint: ready ? 'Rooms, upgrades and staff start over · the cash bonus stays' : `Earn ${fmt(need - run)} more this run`,
+      progress: Math.min(1, run / need), art: 'comfort',
+      action: ready ? { label: 'FRANCHISE', price: 0, kind: 'franchise', confirm: 'SURE? TAP AGAIN' } : null,
+    })
+  }
+  // Every open room 5-star: the long furnishing goal, after the franchise so it never hides it.
   const deluxe = roomGoal('deluxe', '5-STAR ROOM', null, MOTEL.deluxeStars)
   if (deluxe) list.push(deluxe)
   if (!list.length || !list[0]) list.push({ id: 'done', title: 'MOTEL EMPIRE', sub: 'Every goal is done!', hint: 'Keep the guests happy', progress: 1, art: 'comfort', action: null })

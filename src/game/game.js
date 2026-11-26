@@ -11,7 +11,7 @@
 // motel gets no guests. Also: junk yard, dumpster, fountain, pool, furnishing rooms.
 // Money, upgrades, staff and room furniture live in the shared economy (bank).
 import { BoxGeometry, Mesh, MeshStandardMaterial, PlaneGeometry, PointLight, Vector3 } from 'three'
-import { CURB, ECONOMY, LAYOUT, PHYSICS } from '../config.js'
+import { CURB, ECONOMY, LAYOUT, PACING, PHYSICS } from '../config.js'
 import { bank, call, openPanel, panelOpen } from './bank.js'
 import { createHud } from './hud.js'
 import { createDecor, decorSfx } from '../decor/index.js'
@@ -24,6 +24,7 @@ import { interiorMats } from '../motel/rooms.js'
 import { createCleaning, TOOL_KEY } from './clean.js'
 import { createCurb } from './curb.js'
 import { createFood } from './food.js'
+import { busGap, busGuests, patienceMul, rushHour, setPacing, spawnMul } from './pacing.js'
 
 const B = LAYOUT.building
 const FRONT = B.front
@@ -394,7 +395,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     // Wealth: richer guests come when the motel is clean and the rooms look good.
     const tier = pre
     const want = tier.minStars >= 5 ? '5-star' : tier.minStars >= 3 ? 'comfort' : 'regular'
-    const g = { id: guestSeed, p, w, tourist, want, tier, auraT: 0, nights: rndi(...ECONOMY.nights), type: GUEST_TYPES[typeIdx], stage: 'arriving', patience: ECONOMY.deskPatience, room: null, stay: 0 }
+    const g = { id: guestSeed, p, w, tourist, want, tier, auraT: 0, nights: rndi(...ECONOMY.nights), type: GUEST_TYPES[typeIdx], stage: 'arriving', patience: ECONOMY.deskPatience * (tier?.patience ?? 1) * patienceMul(), room: null, stay: 0 }
     guests.push(g)
     queue.push(g)
     routeQueue()
@@ -1009,6 +1010,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
 
   function update(dt, t) {
     clock += dt
+    setPacing(roomState.filter((rs) => rs.state !== 'locked').length, call('franchiseLevel') ?? 0)
     syncTool()
     const px = player.position.x
     const pz = player.position.z
@@ -1043,15 +1045,15 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     // Litter + grime + vandals build up over time.
     litterT -= dt
     if (litterT <= 0) {
-      litterT = ECONOMY.litterEvery
+      litterT = ECONOMY.litterEvery / spawnMul()
       if (outdoorLitter.length < ECONOMY.litterMax) spawnLitter(...randomLotSpot())
     }
     grimeT -= dt
     if (grimeT <= 0) {
-      grimeT = ECONOMY.grimeEvery
+      grimeT = ECONOMY.grimeEvery / spawnMul()
       if (grime.length < ECONOMY.grimeMax) spawnGrime()
     }
-    curb.update(dt)
+    curb.update(dt * spawnMul())
 
     // Trash bag: walking over trash sucks it in.
     if (S.tool === 'trash' && !S.carry) {
@@ -1459,8 +1461,14 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     play('brakes', { x: bus.x, y: 1, z: LAYOUT.busLaneZ })
     const free = LAYOUT.queue.length - queue.length
     const openN = roomState.filter((rs) => rs.state !== 'locked').length
-    let n = Math.max(0, Math.min(free, rndi(1, Math.min(ECONOMY.guestsPerBus[1], openN + 1)) + (tourists ? 1 : 0)))
+    // Demand grows with the motel (pacing.js): more rooms, more guests per bus; now and then a rush.
+    const rush = rushHour(openN)
+    let n = Math.max(0, Math.min(free, rndi(...busGuests(openN)) + (tourists ? 1 : 0) + (rush ? PACING.rush.extra : 0)))
     const ap = appealNow()
+    if (rush && n > 0 && ap >= CURB.noGuestsBelow) {
+      hud.announce('RUSH HOUR!', `${n} guests are coming · get the rooms ready`, 3)
+      play('announce')
+    }
     if (ap < CURB.noGuestsBelow) {
       n = 0
       hud.announce('NOBODY GOT OFF THE BUS 😞', `curb appeal ${ap}% · clean the lot, posters and graffiti`, 4)
@@ -1473,8 +1481,10 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     for (let i = 0; i < n; i++) setTimeout(() => spawnGuest(dp.x - i * 0.3, dp.z + 0.2, tourists), i * 900)
     setTimeout(() => {
       bus.depart()
-      const ge = call('guestEvery', [ECONOMY.busEvery * 0.9, ECONOMY.busEvery * 1.1]) ?? [ECONOMY.busEvery, ECONOMY.busEvery]
-      S.busTimer = Math.max(25, rnd(ge[0], ge[1]))
+      // A good rating and a bigger motel bring the bus sooner; adverts sooner still (never under minBusGap).
+      const gap = busGap(ECONOMY.busEvery, S.rating, openN)
+      const ge = call('guestEvery', [gap * 0.9, gap * 1.1]) ?? [gap, gap]
+      S.busTimer = Math.max(PACING.minBusGap, rnd(ge[0], ge[1]))
       S.nextTour = Math.random() < ECONOMY.touristChance
       play('horn', { x: bus.x, y: 2, z: LAYOUT.busLaneZ })
     }, n * 900 + 2500)

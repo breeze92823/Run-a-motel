@@ -371,7 +371,6 @@ export const ECONOMY = {
   startCleanSets: 4,
   busEvery: 75, // s between buses
   firstBus: 14, // s until the first bus
-  guestsPerBus: [1, 3], // capped by the open rooms (game.js)
   nights: [1, 3], // a guest books 1..3 nights: pays price x nights
   nightSeconds: 22, // s one night lasts in the room
   deskPatience: 80, // s a guest waits at the desk before leaving unhappy (until you talk)
@@ -387,7 +386,7 @@ export const ECONOMY = {
   touristChance: 0.3, // a bus is a tour bus: its guests pay x touristPay
   touristPay: 1.3,
   openRooms: 1, // rooms open at the start (101); open the rest at their doors
-  unlockRoom: [0, 150, 320, 560, 850, 1200], // price to open each ground-floor room
+  unlockRoom: [0, 120, 300, 650, 1300, 2500], // price to open each ground-floor room (~x2 a room: quick first rooms, slower later)
   // Cleaning a room after checkout (s of holding E; cleanSpeedMul divides them).
   stripTime: 1.2, // strip the used sheets (HANDS)
   makeTime: 1.6, // make the bed with a clean set (HANDS)
@@ -417,6 +416,27 @@ export const ECONOMY = {
   fountainCost: 60,
   fountainTime: 2.5,
   ratingWeight: 0.12, // how far one review moves the motel rating
+}
+
+// --- Pacing (src/game/pacing.js): easy at the start, steeper as the motel grows. `heat` =
+// (open rooms - 1) x perRoom + franchise level x perFranchise; heat 0 (one room, first run) is
+// the plain game. Demand grows with the rooms so every room bought earns more; the work grows
+// with heat so staff and upgrades matter later.
+export const PACING = {
+  heat: { perRoom: 1 / 9, perFranchise: 0.2, max: 1.6 },
+  // Guests per bus: min = 1 + floor(open / minPerRooms), max = 1 + ceil(open x maxPerRoom)
+  // (never below the old min(3, open + 1)), both capped by the desk queue.
+  busGuests: { minPerRooms: 4, maxPerRoom: 0.5, cap: 6 },
+  // Bus gap x (1 - (rating - at) x perStar), clamped: 5 stars ~x0.78, 2 stars ~x1.23.
+  busRating: { at: 3.5, perStar: 0.15, min: 0.75, max: 1.3 },
+  busRoomsCut: 3, // s off the bus gap for each open room after the first
+  minBusGap: 15, // s, the shortest gap anything (adverts too) can make
+  rush: { fromRooms: 3, chance: 0.1, perHeat: 0.1, extra: 2 }, // RUSH HOUR bus: +extra guests
+  // What heat 1 does (linear in heat):
+  patienceCut: 0.35, // desk patience x (1 - heat x patienceCut)
+  messExtra: 2, // + trash / dust / stains / mud at checkout
+  spawnFaster: 0.8, // lot litter, grime, graffiti, posters x(1 + heat x spawnFaster) as often
+  walkInFaster: 0.6, // food walk-ins
 }
 
 // --- Food (game/food.js, motel/kitchen.js). Every item is made by hand in 3 steps (hold E
@@ -636,14 +656,15 @@ export const DECOR = {
   // happily in a room with minStars and a looks score of minStyle. Odds per tier:
   // weight[0] + weight[1] * attraction ^ weight[2] (attraction 0..1, rules.attraction).
   guestTiers: [
-    { id: 'backpacker', name: 'BACKPACKER', icon: '🎒', payMul: 0.85, tip: 0, minStars: 1, minStyle: 0, picky: 0.2, weight: [0.9, -0.8, 1], look: { shirt: '#7aa95c', pants: '#5b6b7a', hat: 'cap' } },
-    { id: 'regular', name: 'TRAVELER', icon: '🧳', payMul: 1, tip: 0.05, minStars: 1, minStyle: 0, picky: 0.4, weight: [1, 0, 1] },
-    { id: 'business', name: 'BUSINESS', icon: '💼', payMul: 1.3, tip: 0.12, minStars: 3, minStyle: 25, picky: 0.8, weight: [0, 1.6, 1], look: { shirt: '#2f4a6e', pants: '#1f2a3a' }, aura: '#bfe6ff' },
-    { id: 'wealthy', name: 'WEALTHY', icon: '💎', payMul: 1.8, tip: 0.25, minStars: 4, minStyle: 45, picky: 1.2, weight: [0, 1.8, 2], look: { shirt: '#8a3fc9', pants: '#2a1a3a', hat: 'sun' }, aura: '#e7c6ff' },
-    { id: 'vip', name: 'VIP', icon: '👑', payMul: 2.6, tip: 0.4, minStars: 5, minStyle: 70, picky: 1.6, weight: [0, 2.2, 3], look: { shirt: '#f3efe6', pants: '#c9a227', hat: 'sun' }, aura: '#ffd34a' },
+    { id: 'backpacker', name: 'BACKPACKER', icon: '🎒', payMul: 0.85, tip: 0, minStars: 1, minStyle: 0, patience: 1.2, picky: 0.2, weight: [0.9, -0.8, 1], look: { shirt: '#7aa95c', pants: '#5b6b7a', hat: 'cap' } },
+    { id: 'regular', name: 'TRAVELER', icon: '🧳', payMul: 1, tip: 0.05, minStars: 1, minStyle: 0, patience: 1, picky: 0.4, weight: [1, 0, 1] },
+    { id: 'business', name: 'BUSINESS', icon: '💼', payMul: 1.3, tip: 0.12, minStars: 3, minStyle: 25, patience: 0.85, picky: 0.8, weight: [0, 1.6, 1], look: { shirt: '#2f4a6e', pants: '#1f2a3a' }, aura: '#bfe6ff' },
+    { id: 'wealthy', name: 'WEALTHY', icon: '💎', payMul: 1.8, tip: 0.25, minStars: 4, minStyle: 45, patience: 0.75, picky: 1.2, weight: [0, 1.8, 2], look: { shirt: '#8a3fc9', pants: '#2a1a3a', hat: 'sun' }, aura: '#e7c6ff' },
+    { id: 'vip', name: 'VIP', icon: '👑', payMul: 2.6, tip: 0.4, minStars: 5, minStyle: 70, patience: 0.65, picky: 1.6, weight: [0, 2.2, 3], look: { shirt: '#f3efe6', pants: '#c9a227', hat: 'sun' }, aura: '#ffd34a' },
   ],
   // Attraction weights (sum 1) and how dirt cuts it: below `dirtyBelow` cleanliness the
   // pull drops in proportion, so a filthy lot keeps the rich away whatever the rooms are.
+  // patience: x the desk patience (rich guests wait less).
   attract: { style: 0.4, stars: 0.2, rating: 0.15, clean: 0.25, dirtyBelow: 0.5 },
 }
 ECONOMY.roomUpgrades = DECOR.items

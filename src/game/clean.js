@@ -8,6 +8,7 @@
 // particles; the room's CLEAN % is done tasks / all tasks. Rose (housekeeper) works
 // the same list one task at a time.
 import { ECONOMY } from '../config.js'
+import { messExtra } from './pacing.js'
 
 const rnd = (a, b) => a + Math.random() * (b - a)
 const rndi = (a, b) => Math.floor(rnd(a, b + 1))
@@ -46,14 +47,16 @@ export function createCleaning({ fx, play, spawnLitter, scene }) {
     tasks.push({ kind: 'strip', x: I.bedPoint.x, z: I.bedPoint.z, done: false, p: 0 })
     tasks.push({ kind: 'make', x: I.bedPoint.x, z: I.bedPoint.z, done: false, p: 0 })
     // Trash on the floor.
-    const nl = rndi(...ECONOMY.roomLitter)
+    // A bigger motel's guests leave more mess (pacing.js heat; none extra at the start).
+    const more = messExtra()
+    const nl = rndi(...ECONOMY.roomLitter) + more
     rs.litter = []
     for (let i = 0; i < nl; i++) {
       const [x, z] = I.litterSpots[i % I.litterSpots.length]
       const item = spawnLitter(x + rnd(-0.3, 0.3), z + rnd(-0.3, 0.3), rs.litter, 0.21)
       tasks.push({ kind: 'trash', item, x: item.x, z: item.z, done: false, p: 0 })
     }
-    const pick = (spots, range) => shuffle(spots).slice(0, rndi(...range))
+    const pick = (spots, range) => shuffle(spots).slice(0, rndi(...range) + more)
     for (const s of pick(I.dustSpots, ECONOMY.roomDust)) tasks.push({ kind: 'dust', x: s.x, z: s.z, meshes: [s.mesh], done: false, p: 0 })
     for (const s of pick(I.stainSpots, ECONOMY.roomStains)) tasks.push({ kind: 'stain', x: s.x, z: s.z, meshes: [s.mesh], done: false, p: 0 })
     for (const s of pick(I.mudSpots, ECONOMY.roomMud)) tasks.push({ kind: 'mud', x: s.x, z: s.z, meshes: [s.mesh], done: false, p: 0 })

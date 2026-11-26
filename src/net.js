@@ -41,6 +41,7 @@ const hasServer = () => !!(SERVER_URL || canResolveServer())
 
 let sentId = ''
 let lastSaved = ''
+let frozen = false // a franchise was stored: nothing may overwrite it before the reload
 let debounce = 0
 let clockOffset = 0
 export const serverNow = () => Date.now() + clockOffset
@@ -62,7 +63,7 @@ export function saveNow() {
   // A Boxity guest with a token is saved under its verified guest id (its progress can follow it
   // into an account later). Every save, a guest's too, is also what the others in the room draw
   // this motel from (the server stores nothing it has no identity for).
-  if (!net.connected || !net.hydrated) return
+  if (!net.connected || !net.hydrated || frozen) return
   const motel = economy.snapshot()
   const { lastSeen, rate, ...stable } = motel
   const key = JSON.stringify(stable)
@@ -96,6 +97,10 @@ function attach(room) {
   room.onMessage('serverError', () => {
     net.hydrated = false
     console.warn('[net] the server could not read the save; saving is off for this session')
+  })
+  room.onMessage('saved', (msg) => {
+    const i = saveWaits.findIndex((w) => w.ack === msg?.ack)
+    if (i >= 0) saveWaits.splice(i, 1)[0].done(msg?.stored === true)
   })
   room.onMessage('adRewardResult', (msg) => {
     const waiting = rewardWaits.shift()
@@ -136,6 +141,38 @@ export function remoteRoster() {
   const players = net.room?.state?.players
   if (players?.forEach) players.forEach((p, id) => id !== net.room.sessionId && out.push([id, p]))
   return out
+}
+
+// Franchise (rebirth, economy.franchiseDoc): the new motel is stored first (the server answers
+// `saved` { ack, stored } once it is in the database), then the page reloads so every module
+// builds the fresh motel from it. Saving stays off meanwhile so the old motel can't overwrite it.
+// -> { ok, reason: 'offline' | 'locked' | 'save' }; on ok the page is reloading.
+const saveWaits = []
+export function franchiseAndReload() {
+  if (!net.connected || !net.hydrated) return Promise.resolve({ ok: false, reason: 'offline' })
+  const motel = economy.franchiseDoc()
+  if (!motel) return Promise.resolve({ ok: false, reason: 'locked' })
+  frozen = true
+  clearTimeout(debounce)
+  const ack = `f${Date.now().toString(36)}`
+  return new Promise((resolve) => {
+    const done = (stored) => {
+      clearTimeout(timer)
+      if (!stored) {
+        frozen = false
+        return resolve({ ok: false, reason: 'save' })
+      }
+      resolve({ ok: true })
+      setTimeout(() => location.reload(), 900)
+    }
+    const timer = setTimeout(() => {
+      const i = saveWaits.findIndex((w) => w.ack === ack)
+      if (i >= 0) saveWaits.splice(i, 1)
+      done(false)
+    }, 10_000)
+    saveWaits.push({ ack, done })
+    send('saveProgress', { motel, ack })
+  })
 }
 
 // Rewarded ads: the server checks Boxity's single-use reward token before the reward is granted.
