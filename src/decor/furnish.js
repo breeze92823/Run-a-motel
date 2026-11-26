@@ -81,6 +81,7 @@ export function createFurnish({ camera, renderer, playerGroup, fx, bank, rooms, 
   const tmpV = new Vector3()
   const lights = { hemi: new HemisphereLight('#fff6e6', '#c9a77a', 0), point: new PointLight('#fff0d6', 0, 14, 1.2) }
   let lightsAdded = false
+  let wasVisible = true // the avatar's visibility before the editor hid it
 
   // --- DOM ---------------------------------------------------------------------------------------
   function build() {
@@ -603,7 +604,10 @@ export function createFurnish({ camera, renderer, playerGroup, fx, bank, rooms, 
     target.set(room.centre.x, 0.9, room.centre.z)
     document.exitPointerLock?.()
     for (const k of Object.keys(inputState.move)) inputState.move[k] = 0
-    if (playerGroup) playerGroup.visible = false
+    if (playerGroup) {
+      wasVisible = playerGroup.visible
+      playerGroup.visible = false
+    }
     renderer.clippingPlanes = [clip]
     if (!lightsAdded) {
       room.group.parent.add(lights.hemi, lights.point)
@@ -633,7 +637,7 @@ export function createFurnish({ camera, renderer, playerGroup, fx, bank, rooms, 
     S.closing = false
     root.classList.remove('leaving')
     renderer.clippingPlanes = []
-    if (playerGroup) playerGroup.visible = true
+    if (playerGroup) playerGroup.visible = wasVisible // hidden again in first person
     document.body.classList.remove('df-furnishing')
     lights.hemi.intensity = 0
     lights.point.intensity = 0

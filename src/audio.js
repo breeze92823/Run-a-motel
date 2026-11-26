@@ -2,8 +2,11 @@
 // The context starts on the first pointer/key press (browsers block audio before a gesture).
 // World and gameplay sounds are src/fx/sfx.js.
 
+import { addOutput } from './fx/mixer.js'
+
 let ctx = null
 let master = null
+let out = null // mixer handle (Boxity master volume, ad-break mute)
 let volume = 0.55
 
 function ac() {
@@ -15,6 +18,7 @@ function ac() {
     master = ctx.createGain()
     master.gain.value = volume
     master.connect(ctx.destination)
+    out = addOutput(master, volume)
   } catch {
     ctx = null
   }
@@ -31,7 +35,7 @@ if (typeof window !== 'undefined') {
 
 export function setUiVolume(v) {
   volume = Math.max(0, Math.min(1, v))
-  if (master) master.gain.value = volume
+  out?.setBase(volume)
 }
 
 // One enveloped oscillator note.

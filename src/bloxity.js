@@ -9,6 +9,28 @@ export function sdk() {
   return (typeof window !== 'undefined' && window.Legion && window.Legion.SDK) || null
 }
 
+// --- Environment ----------------------------------------------------------
+// The ONLY place Boxity URLs come from: what the platform told the page (the SDK's environment(),
+// else window.BLOXITY_ENV), falling back to prod only when nothing was told. Never derived from
+// the page's own hostname.
+const PROD_ENV = {
+  env: 'prod',
+  apiUrl: 'https://api.bloxity.io',
+  playUrl: 'https://play.bloxity.io',
+  portalUrl: 'https://bloxity.io',
+  staticUrl: 'https://static.bloxity.io',
+}
+export function boxityEnv() {
+  try {
+    const e = window.Legion?.SDK?.environment?.()
+    if (e?.apiUrl) return { ...PROD_ENV, ...e }
+  } catch {
+    // Older SDK builds have no environment().
+  }
+  const told = typeof window !== 'undefined' ? window.BLOXITY_ENV : null
+  return told?.apiUrl ? { ...PROD_ENV, ...told } : PROD_ENV
+}
+
 // --- State --------------------------------------------------------------
 export const settings = {}
 for (const key of Object.keys(SETTINGS)) settings[key] = coerceSetting(key, SETTINGS[key].def)
@@ -112,13 +134,7 @@ export function getPfp() {
   const raw = authState.user?.pfp || authState.guest?.pfp
   if (typeof raw !== 'string' || !raw) return ''
   try {
-    let base = 'https://static.bloxity.io'
-    try {
-      base = sdk()?.environment?.()?.staticUrl || base
-    } catch {
-      // Older SDK builds have no environment().
-    }
-    const url = new URL(raw, base)
+    const url = new URL(raw, boxityEnv().staticUrl)
     return /^https?:$/.test(url.protocol) ? url.href : ''
   } catch {
     return ''
@@ -142,8 +158,15 @@ export function init() {
   }
 
   try {
-    const onLocalhost = /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname)
-    SDK.init(onLocalhost ? { gameSlug: GAME_SLUG, portalUrl: 'https://bloxity.io' } : { gameSlug: GAME_SLUG })
+    // The environment (prod / stage / local) is whatever the platform told the page.
+    SDK.init({ gameSlug: GAME_SLUG })
+    // Platform features the game services, announced right after init (not after assets load) so
+    // Boxity shows their controls: the emote button.
+    try {
+      SDK.game.registerFeature?.('emotes')
+    } catch {
+      // Older SDK.
+    }
     SDK.game.loadingStep(`Loading ${GAME_TITLE}`)
 
     for (const key of Object.keys(SETTINGS)) {
@@ -178,12 +201,23 @@ export function init() {
     }
 
     unsubscribers.push(
-      SDK.player.onEvent((event) => {
+      SDK.player.onEvent((event, data) => {
         if (event === 'respawn_request') emit(respawnListeners)
+        else if (event === 'play_emote' && typeof data === 'string') emit(emoteListeners, data)
+        else if (event === 'stop_emote') emit(emoteListeners, null)
+        else if (event === 'pointer_lock_changed' && data === false && document.pointerLockElement) {
+          // The portal released the mouse (its menu opened over the game): follow it.
+          try {
+            document.exitPointerLock()
+          } catch {
+            // Ignore.
+          }
+        }
       }),
     )
 
-    SDK.game.loadingStep('Building the island')
+    installPlatformFeatures(SDK)
+    SDK.game.loadingStep('Building the motel')
   } catch (err) {
     console.warn('[bloxity] init failed; running without the SDK', err)
     authState.ready = true
@@ -305,13 +339,7 @@ export function launchRoomId() {
 // can't be found. A bare id needs the matchmaker's cross-pod directory (a plain joinById through
 // any relay would usually land on another pod); a relay~room id is joined through its relay.
 export async function locateRoom(id) {
-  const playUrl = (() => {
-    try {
-      return sdk()?.environment?.()?.playUrl
-    } catch {
-      return '' // Older SDK builds have no environment().
-    }
-  })()
+  const playUrl = sdk() ? boxityEnv().playUrl : ''
   if (!playUrl || !id) return null
   const base = playUrl.replace(/\/$/, '')
   const [relay, roomId] = id.includes('~') ? id.split('~', 2) : ['', id]
@@ -377,6 +405,180 @@ export function requestFullscreen(on) {
     if (!SDK) return
     if (on) SDK.portal.requestFullscreen()
     else SDK.portal.exitFullscreen()
+  } catch {
+    // Ignore.
+  }
+}
+
+// --- Platform features (emotes, ads, screen ads, leaderboard, chat) ------------------------------
+// Listeners registered here before or after init; the SDK calls are wired once in init().
+const emoteListeners = new Set() // fn(emoteId | null): null = the portal took the emote off
+const breakListeners = new Set() // fn(true at an ad break's start, false at its end)
+const chatListeners = new Set() // fn({ userId, username, text, isGif, at, isLocalPlayer, bubble })
+
+// Play / stop a Boxity emote picked in the portal's wheel (never our own emote UI).
+export function onEmote(fn) {
+  emoteListeners.add(fn)
+  return () => emoteListeners.delete(fn)
+}
+// Ad breaks (midroll or rewarded): pause the simulation and mute audio while one plays.
+export function onAdBreak(fn) {
+  breakListeners.add(fn)
+  return () => breakListeners.delete(fn)
+}
+// Chat messages in the player's room (Boxity draws the chat UI; the game draws the bubbles).
+export function onChat(fn) {
+  chatListeners.add(fn)
+  return () => chatListeners.delete(fn)
+}
+
+// The leaderboard the game server reports to (Run-a-motel-backend src/reports.ts BOARDS): declared
+// in the browser too, because the declaration is what shows Boxity's trophy button.
+export const LEADERBOARDS = [{ id: 'earned', label: 'Lifetime Earnings', order: 'desc', mode: 'best', format: 'compact', reset: 'weekly' }]
+// Screen ads: the screens this game has. No menu / lobby / results; 'panel' = a full-screen window
+// (Upgrades / Hiring / Shop, the FURNISH editor). Gameplay banners stay off (Boxity's default).
+const AD_SCREENS = { panel: {}, gameplay: {} }
+
+function installPlatformFeatures(SDK) {
+  const guard = (what, fn) => {
+    try {
+      fn()
+    } catch (err) {
+      console.warn(`[bloxity] ${what} unavailable`, err)
+    }
+  }
+  guard('ad breaks', () => {
+    const offStart = SDK.ads?.onBreakStart?.(() => emit(breakListeners, true))
+    const offEnd = SDK.ads?.onBreakEnd?.(() => emit(breakListeners, false))
+    for (const off of [offStart, offEnd]) if (typeof off === 'function') unsubscribers.push(off)
+  })
+  guard('screen ads', () => SDK.ads?.declareScreens?.(AD_SCREENS))
+  guard('leaderboard', () => SDK.leaderboard?.define?.(LEADERBOARDS))
+  guard('chat', () => {
+    const off = SDK.chat?.onMessage?.((m) => {
+      if (!m || typeof m !== 'object') return
+      let bubble = ''
+      try {
+        bubble = SDK.chat.bubbleText(m)
+      } catch {
+        bubble = m.isGif ? 'sent a GIF' : String(m.text ?? '').slice(0, 80)
+      }
+      emit(chatListeners, { ...m, bubble })
+    })
+    if (typeof off === 'function') unsubscribers.push(off)
+  })
+}
+
+// Reports which of the declared screens is showing ('panel' | 'gameplay'); Boxity places its
+// banners around it. A new call replaces the last. No-op outside Boxity.
+let currentScreen = ''
+export function adScreen(type) {
+  if (type === currentScreen) return
+  currentScreen = type
+  try {
+    sdk()?.ads?.screen?.(type)
+  } catch {
+    // Ignore.
+  }
+}
+
+// Rewarded ads: only offered inside a Boxity portal that serves ads.
+export function adsAvailable() {
+  try {
+    return !!sdk()?.ads?.isAvailable?.()
+  } catch {
+    return false
+  }
+}
+// -> { status, rewardToken?, reason? }; grant only on status 'completed' (after the server
+// checked the token). Never rejects.
+export async function showRewarded(placement) {
+  try {
+    const r = await sdk()?.ads?.showRewarded?.(placement)
+    return r && typeof r === 'object' ? r : { status: 'disabled' }
+  } catch {
+    return { status: 'error' }
+  }
+}
+
+// A chat bubble over a three.js object (the local player); { remove() } or null.
+export function attachChatBubble(THREE, target, text, options) {
+  try {
+    return sdk()?.chat?.attachBubble?.(THREE, target, text, options) ?? null
+  } catch {
+    return null
+  }
+}
+export function chatBubbleSeconds() {
+  return sdk()?.chat?.bubbleSeconds ?? 4
+}
+
+// The player's Boxity JWT for the game server to verify (null signed out / without the SDK).
+export function getToken() {
+  try {
+    return sdk()?.auth?.getToken?.() ?? null
+  } catch {
+    return null
+  }
+}
+
+// Platform character kit (three.js): dresses `root` (our player.glb clone) in the player's whole
+// look from one outfit key, including item types Boxity adds later. Resolves the handle, or null
+// when the kit cannot draw it (switched off, custom character, an older SDK): the caller then
+// uses the manual avatar path (avatar/loader.js).
+// `key` = another player's outfit key (src/remotePlayers.js); omitted = this player's own.
+export async function dressCharacter(THREE, GLTFLoader, root, key = getOutfitKey()) {
+  try {
+    const SDK = sdk()
+    if (!key || !SDK?.character?.canDress?.(key)) return null
+    return (await SDK.character.dress({ THREE, GLTFLoader, root, outfitKey: key })) ?? null
+  } catch (err) {
+    console.warn('[bloxity] character kit failed; drawing the avatar manually', err)
+    return null
+  }
+}
+
+// This player's outfit key (an id the character kit dresses any rig from, never a URL), '' = none.
+export function getOutfitKey() {
+  try {
+    const key = sdk()?.avatar?.getOutfitKey?.()
+    return typeof key === 'string' ? key : ''
+  } catch {
+    return ''
+  }
+}
+
+// Whether the character kit can draw `key` on this page (switched off, custom character: no).
+export function canDress(key) {
+  try {
+    return !!(key && sdk()?.character?.canDress?.(key))
+  } catch {
+    return false
+  }
+}
+
+// The look the others draw this player with when the character kit cannot (the manual loader.js
+// path): JSON { equipped, proportions, skin } of a signed-in player, '' = the default rig. Capped
+// at `max` characters (the backend's AVATAR_MAX_LEN): a bigger look falls back to the default.
+export function avatarLook(max = 6000) {
+  if (!authState.user) return ''
+  try {
+    const skin = getSkinTextureUrl()
+    const text = JSON.stringify({ equipped: getEquippedAvatar(), proportions: getProportions(), skin: skin && /^https?:\/\//.test(skin) ? skin : null })
+    return text.length <= max ? text : ''
+  } catch {
+    return ''
+  }
+}
+
+// Friend-join toasts: the portal shows "X joined you" only when X is one of the player's friends,
+// so every roster name can be reported.
+export function playerJoined(username, alreadyThere = false) {
+  if (!username) return
+  try {
+    const game = sdk()?.game
+    if (alreadyThere) game?.playerInRoom?.(username)
+    else game?.playerJoined?.(username)
   } catch {
     // Ignore.
   }

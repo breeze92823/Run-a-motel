@@ -55,5 +55,19 @@ export function createPostFx(renderer, scene, camera) {
       if (enabled && composer) composer.render()
       else renderer.render(scene, camera)
     },
+    // Compiles the shaders of everything in `root` (hidden objects too) for the way the scene is
+    // drawn now: into the bloom target (no tone mapping) or straight to the screen. Resolves when
+    // the GPU has them (KHR_parallel_shader_compile lets it work in the background).
+    compile(root = scene) {
+      const before = renderer.getRenderTarget()
+      renderer.setRenderTarget(enabled && composer ? composer.readBuffer : null)
+      let done
+      try {
+        done = renderer.compileAsync ? renderer.compileAsync(root, camera, scene) : Promise.resolve(renderer.compile(root, camera, scene))
+      } finally {
+        renderer.setRenderTarget(before)
+      }
+      return done
+    },
   }
 }

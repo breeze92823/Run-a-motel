@@ -5,9 +5,11 @@
 //   toolSfx('sponge') - soft squish (sponge equipped)
 //   toolSfx('hands')  - quick whoosh (hands / tool put away)
 import { TOOL_SFX } from '../config.js'
+import { addOutput } from './mixer.js'
 
 let ctx = null
 let master = null
+let out = null // mixer handle (Boxity master volume, ad-break mute)
 let noise = null // 1 s of white noise, shared by every noisy sound
 
 function ensure() {
@@ -19,6 +21,7 @@ function ensure() {
     master = ctx.createGain()
     master.gain.value = TOOL_SFX.volume
     master.connect(ctx.destination)
+    out = addOutput(master, TOOL_SFX.volume)
     noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
     const d = noise.getChannelData(0)
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
@@ -35,7 +38,7 @@ function unlock() {
 for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, unlock, { capture: true, passive: true })
 
 export function setToolVolume(v) {
-  if (master) master.gain.value = v
+  out?.setBase(v)
 }
 
 function env(t, attack, peak, decay) {

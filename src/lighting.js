@@ -143,6 +143,11 @@ export function createLighting(scene, renderer, preset) {
   let night = 0 // 0 = day, 1 = night
   let target = 0
   const dir = new Vector3()
+  const centre = new Vector3()
+  const flat = new Vector3()
+  const axX = new Vector3()
+  const axY = new Vector3()
+  const UP = new Vector3(0, 1, 0)
   const tmpA = new Vector3()
   const tmpB = new Vector3()
   const c = new Color()
@@ -202,7 +207,10 @@ export function createLighting(scene, renderer, preset) {
       }
     },
     // Called every frame with the player's position so the sun's shadow box and the sky follow them.
-    update(dt, focus) {
+    // `ahead` (optional, the camera's horizontal look direction): the shadow box sits that way of
+    // the player (LIGHT.shadowAhead of its half-width), so its area is spent on what is on screen.
+    // The box moves in whole shadow texels (no shimmering edges as the player walks).
+    update(dt, focus, ahead = null) {
       if (night !== target) {
         const stepAmount = dt / TIME_OF_DAY.transition
         night = target > night ? Math.min(target, night + stepAmount) : Math.max(target, night - stepAmount)
@@ -211,8 +219,19 @@ export function createLighting(scene, renderer, preset) {
       }
       sky.position.set(focus.x, 0, focus.z)
       stars.position.copy(sky.position)
-      sun.position.set(focus.x + dir.x * 90, focus.y + dir.y * 90, focus.z + dir.z * 90)
-      sun.target.position.set(focus.x, focus.y, focus.z)
+      const r = LIGHT.shadowRange
+      centre.copy(focus)
+      if (ahead) centre.addScaledVector(flat.set(ahead.x, 0, ahead.z).normalize(), r * LIGHT.shadowAhead)
+      // Snap the centre to the shadow map's texel grid in the light's own axes.
+      const texel = (2 * r) / sun.shadow.mapSize.x
+      axX.crossVectors(UP, dir).normalize()
+      axY.crossVectors(dir, axX)
+      const a = Math.round(centre.dot(axX) / texel) * texel
+      const b = Math.round(centre.dot(axY) / texel) * texel
+      const d = centre.dot(dir)
+      centre.copy(axX).multiplyScalar(a).addScaledVector(axY, b).addScaledVector(dir, d)
+      sun.position.copy(centre).addScaledVector(dir, 90)
+      sun.target.position.copy(centre)
       sun.target.updateMatrixWorld()
     },
   }

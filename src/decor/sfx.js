@@ -3,8 +3,11 @@
 //   decorSfx('open' | 'close' | 'tab' | 'tap' | 'place' | 'land' | 'pop' | 'paint' | 'unroll' |
 //            'buy' | 'star' (n) | 'tierUp' | 'error' | 'undo' | 'redo' | 'view' | 'match' |
 //            'wealthy' | 'vip' | 'bigCash' | 'tryOn')
+import { addOutput } from '../fx/mixer.js'
+
 let ctx = null
 let master = null
+let out = null // mixer handle (Boxity master volume, ad-break mute)
 let noiseBuf = null
 let volume = 0.55
 
@@ -21,6 +24,7 @@ function ensure() {
     comp.threshold.value = -14
     comp.ratio.value = 4
     master.connect(comp).connect(ctx.destination)
+    out = addOutput(master, volume)
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate)
     const d = noiseBuf.getChannelData(0)
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
@@ -36,7 +40,7 @@ window.addEventListener('pointerdown', unlock, { capture: true })
 window.addEventListener('keydown', unlock, { capture: true })
 export function setDecorVolume(v) {
   volume = v
-  if (master) master.gain.value = v
+  out?.setBase(v)
 }
 
 function env(g, t, a, peak, d) {

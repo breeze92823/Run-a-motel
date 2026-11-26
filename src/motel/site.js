@@ -21,13 +21,15 @@ import {
   RingGeometry,
   TorusGeometry,
 } from 'three'
-import { ECONOMY, LAYOUT } from '../config.js'
+import { ECONOMY, LAYOUT, WORLD } from '../config.js'
 import { RAPIER, addFixed } from '../physics.js'
 import { mulberry32 } from '../textures.js'
 import { box, C, canvasTex, mat, rbox, textures } from './kit.js'
 import { paintSign, paintTile, tex } from './paint.js'
 import { dressPool } from './poolside.js'
-import { bush, busStop, cactus, car, dumpster, junk, mailbox, palm, planter, rock, streetLamp, trashBag, tree } from './props.js'
+import { bush, busStop, cactus, car, dumpster, junk, mailbox, palm, rock, streetLamp, trashBag, tree } from './props.js'
+
+const PLOT_HALF = WORLD.plot.x1 // half the plot's width (the plot is centred on x = 0)
 
 function solid(hx, hy, hz, x, y, z, yaw = 0) {
   return addFixed(RAPIER.ColliderDesc.cuboid(hx, hy, hz), { x, y, z }, yaw ? { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) } : null)
@@ -80,10 +82,15 @@ function buildPool(scene) {
   slab(P.x1, D.x1, D.z0, D.z1)
   slab(P.x0, P.x1, D.z0, P.z0)
   slab(P.x0, P.x1, P.z1, D.z1)
+  if (D.ext) slab(D.ext.x0, D.ext.x1, D.ext.z0, D.ext.z1)
   // Coping, mosaic waterline, drains, lights, deck props: poolside.js (dressPool below).
   const cope = mat('#fbf6ec', { roughness: 0.5 })
   const pw = P.x1 - P.x0
   const pd = P.z1 - P.z0
+  const small = pw < 9 // a corner pool: the closed-state props sit on the south deck
+  const closedAt = small
+    ? { sign: [P.x0 + 0.9, P.z1 + 1.5], pump: [P.x0 - 1.0, P.z1 + 1.2], barricades: [[P.x0 + 2.9, P.z1 + 1.0, 0.1], [P.x1 - 1.0, P.z1 + 1.1, -0.15]] }
+    : { sign: [P.x0 - 2.3, P.z1 + 2.5], pump: [P.x0 - 1.5, P.z1 + 1.2], barricades: [[P.x0 + 2, P.z1 + 1.0, 0.1], [P.x1 - 1.5, P.z1 + 1.1, -0.15]] }
   // Basin: tiled walls + floor, a dark waterline band, depth markings.
   const tileM = mat('#ffffff', { map: tex(paintTile('#6fb7c8', '#9fd2dc', '#d8eef2', 256, 8), { repeatX: 1, repeatY: 1 }), roughness: 0.35 })
   const deep = -P.depth
@@ -113,10 +120,11 @@ function buildPool(scene) {
   }
   for (let i = 0; i < 3; i++) box(g, 0.6, 0.04, 0.12, chrome, P.x0 + 3, -0.2 - i * 0.35, P.z1 - 0.35)
   // Diving board on a teal stand at the deep end.
-  box(g, 0.8, 0.5, 0.6, mat(C.teal), P.x0 - 0.9, 0.25, (P.z0 + P.z1) / 2 + 2)
-  const board = rbox(g, 2.8, 0.1, 0.55, 0.04, mat('#5fc6b1', { roughness: 0.4 }), P.x0 + 0.3, 0.55, (P.z0 + P.z1) / 2 + 2)
+  const dbz = (P.z0 + P.z1) / 2 + Math.min(2, pd / 2 - 1.2)
+  box(g, 0.8, 0.5, 0.6, mat(C.teal), P.x0 - 0.9, 0.25, dbz)
+  const board = rbox(g, 2.8, 0.1, 0.55, 0.04, mat('#5fc6b1', { roughness: 0.4 }), P.x0 + 0.3, 0.55, dbz)
   board.rotation.z = -0.03
-  solid(0.4, 0.3, 0.3, P.x0 - 0.9, 0.3, (P.z0 + P.z1) / 2 + 2)
+  solid(0.4, 0.3, 0.3, P.x0 - 0.9, 0.3, dbz)
 
   // Dry-pool dressing: dead leaves, a green puddle, a few bits of trash.
   const dry = new Group()
@@ -128,14 +136,14 @@ function buildPool(scene) {
     l.rotation.set(-Math.PI / 2 + (rand() - 0.5) * 0.6, 0, rand() * 6)
     const cluster = i % 3
     const cxp = [P.x0 + 3, P.x1 - 3, (P.x0 + P.x1) / 2][cluster]
-    const czp = [P.z0 + 2, P.z1 - 2.5, (P.z0 + P.z1) / 2][cluster]
-    l.position.set(cxp + (rand() - 0.5) * 3, deep + 0.05 + rand() * 0.02, czp + (rand() - 0.5) * 2.5)
+    const czp = [P.z0 + Math.min(2, pd * 0.3), P.z1 - Math.min(2.5, pd * 0.3), (P.z0 + P.z1) / 2][cluster]
+    l.position.set(cxp + (rand() - 0.5) * Math.min(3, pw * 0.3), deep + 0.05 + rand() * 0.02, czp + (rand() - 0.5) * Math.min(2.5, pd * 0.4))
     dry.add(l)
   }
-  const puddle = new Mesh(new CircleGeometry(1.8, 24), new MeshStandardMaterial({ color: '#8fa64a', transparent: true, opacity: 0.75, roughness: 0.1 }))
+  const puddle = new Mesh(new CircleGeometry(Math.min(1.8, pd * 0.32), 24), new MeshStandardMaterial({ color: '#8fa64a', transparent: true, opacity: 0.75, roughness: 0.1 }))
   puddle.rotation.x = -Math.PI / 2
   puddle.scale.set(1.4, 1, 1)
-  puddle.position.set((P.x0 + P.x1) / 2 - 1, deep + 0.04, (P.z0 + P.z1) / 2 + 1)
+  puddle.position.set((P.x0 + P.x1) / 2 - 1, deep + 0.04, (P.z0 + P.z1) / 2 + Math.min(1, pd * 0.1))
   dry.add(puddle)
   g.add(dry)
   // Water (hidden until the pool opens).
@@ -151,10 +159,10 @@ function buildPool(scene) {
   const sign = new Group()
   box(sign, 0.08, 2.4, 0.08, mat('#cfcac0'), 0, 1.2, 0)
   signPlane(sign, signC, 2.0, 0.94, 0, 2.2, 0.05)
-  sign.position.set(P.x0 - 2.3, 0, P.z1 + 2.5)
+  sign.position.set(closedAt.sign[0], 0, closedAt.sign[1])
   sign.rotation.y = 0.35
   g.add(sign)
-  solid(0.1, 1.2, 0.1, P.x0 - 2.3, 1.2, P.z1 + 2.5)
+  solid(0.1, 1.2, 0.1, closedAt.sign[0], 1.2, closedAt.sign[1])
   // Pool pump with a locked "5★ ROOM" tag.
   const pump = new Group()
   rbox(pump, 1.1, 0.12, 0.8, 0.03, mat('#e8dcc4'), 0, 0.06, 0)
@@ -168,13 +176,13 @@ function buildPool(scene) {
   box(pump, 0.05, 0.6, 0.05, mat('#1f9e83'), 0.45, 0.4, -0.25)
   const tagC = paintSign({ w: 256, h: 180, bg: '#fbf6ec', border: '#1f9e83', borderW: 12, radius: 10, lines: [{ t: '🔒 5★', size: 56, color: '#333' }, { t: 'ROOM', size: 48, color: '#333' }] })
   signPlane(pump, tagC, 0.45, 0.32, 0.45, 0.85, -0.25)
-  pump.position.set(P.x0 - 1.5, 0, P.z1 + 1.2)
+  pump.position.set(closedAt.pump[0], 0, closedAt.pump[1])
   pump.rotation.y = -0.4
   g.add(pump)
-  solid(0.55, 0.5, 0.4, P.x0 - 1.5, 0.5, P.z1 + 1.2)
+  solid(0.55, 0.5, 0.4, closedAt.pump[0], 0.5, closedAt.pump[1])
   // Barricades by the pool and the stairs.
   const barricades = []
-  for (const [x, z, r] of [[P.x0 + 2, P.z1 + 1.0, 0.1], [P.x1 - 1.5, P.z1 + 1.1, -0.15]]) {
+  for (const [x, z, r] of closedAt.barricades) {
     const b = barricade()
     b.position.set(x, 0, z)
     b.rotation.y = r
@@ -196,6 +204,19 @@ function buildPool(scene) {
       for (const b of barricades) b.visible = false
       sign.visible = false
     },
+    // Back to closed and dry (src/remoteMotels.js: a plot whose new owner has no pool yet).
+    close() {
+      if (!open) return
+      open = false
+      fill = 0
+      water.visible = false
+      water.position.y = deep
+      dry.visible = true
+      dress.update(0, 0, deep, 0) // hides the caustics, lights and floating toys
+      dress.setOpen(false)
+      for (const b of barricades) b.visible = true
+      sign.visible = true
+    },
     isOpen: () => open,
     update(dt, t) {
       if (open && fill < 1) {
@@ -206,6 +227,7 @@ function buildPool(scene) {
       if (open) waterMat.color.setHSL(0.53, 0.75, 0.55 + Math.sin(t * 1.3) * 0.02)
       dress.update(dt, t, water.position.y, fill)
     },
+    group: g, // the whole pool (src/remoteMotels.js bakes it open and closed)
     center: { x: (P.x0 + P.x1) / 2, z: (P.z0 + P.z1) / 2 },
   }
 }
@@ -215,7 +237,7 @@ function buildFountain(scene) {
   const F = LAYOUT.fountain
   const g = new Group()
   // Plaza of warm tiles.
-  const plaza = new Mesh(new CircleGeometry(F.r + 2.6, 8), mat('#f2d9ae', { map: textures().pave, roughness: 0.9 }))
+  const plaza = new Mesh(new CircleGeometry(F.r + F.plaza, 8), mat('#f2d9ae', { map: textures().pave, roughness: 0.9 }))
   plaza.rotation.x = -Math.PI / 2
   plaza.rotation.z = Math.PI / 8
   plaza.position.y = 0.025
@@ -260,7 +282,7 @@ function buildFountain(scene) {
     }
   }
   // Basin floor: dry sand + cracks + debris when broken.
-  const floorM = mat('#e9c98d', { roughness: 1 })
+  const floorM = new MeshStandardMaterial({ color: '#e9c98d', roughness: 1 }) // its own: fix() recolours it
   const fl = new Mesh(new CircleGeometry(R - 0.25, 8), floorM)
   fl.rotation.x = -Math.PI / 2
   fl.rotation.z = Math.PI / 8
@@ -298,12 +320,12 @@ function buildFountain(scene) {
   const debris = new Group()
   const drand = mulberry32(5)
   for (let i = 0; i < 10; i++) {
-    const d = box(debris, 0.15 + drand() * 0.3, 0.06, 0.12 + drand() * 0.25, mat(tileCols[i % 5]), (drand() - 0.5) * 6, 0.33, (drand() - 0.5) * 6)
+    const d = box(debris, 0.15 + drand() * 0.3, 0.06, 0.12 + drand() * 0.25, mat(tileCols[i % 5]), (drand() - 0.5) * F.r * 1.3, 0.33, (drand() - 0.5) * F.r * 1.3)
     d.rotation.y = drand() * 3
   }
   for (let i = 0; i < 5; i++) {
     const tw = new Mesh(new IcosahedronGeometry(0.28, 1), mat('#b0884e', { roughness: 1, wireframe: true }))
-    tw.position.set((drand() - 0.5) * 5, 0.5, (drand() - 0.5) * 5)
+    tw.position.set((drand() - 0.5) * F.r * 1.1, 0.5, (drand() - 0.5) * F.r * 1.1)
     debris.add(tw)
   }
   g.add(debris)
@@ -328,6 +350,17 @@ function buildFountain(scene) {
       water.visible = true
       floorM.color.set('#7fd6e8')
     },
+    // Back to broken (src/remoteMotels.js: a plot whose new owner has not mended theirs yet).
+    unfix() {
+      fixed = false
+      lerp = 0
+      debris.visible = true
+      finial.visible = false
+      water.visible = false
+      floorM.color.set('#e9c98d')
+      topBowl.position.set(...topBroken.pos)
+      topBowl.rotation.set(...topBroken.rot)
+    },
     update(dt, t) {
       if (fixed && lerp < 1) {
         lerp = Math.min(1, lerp + dt * 1.2)
@@ -337,6 +370,7 @@ function buildFountain(scene) {
       }
       if (fixed) water.position.y = 0.62 + Math.sin(t * 2) * 0.01
     },
+    group: g, // the whole fountain (src/remoteMotels.js bakes it broken and mended)
     spouts: [
       { x: F.x, y: 3.9, z: F.z },
       { x: F.x, y: 2.25, z: F.z },
@@ -357,10 +391,17 @@ function buildYard(scene) {
   const boardGeo = new BoxGeometry(0.28, 2.4, 0.08)
   const runs = []
   const edge = (x0, z0, x1, z1) => runs.push([x0, z0, x1, z1])
+  const westGate = Y.gate.side === 'west'
   edge(Y.x0, Y.z0, Y.x1, Y.z0) // back
-  edge(Y.x0, Y.z0, Y.x0, Y.z1) // west
   edge(Y.x1, Y.z0, Y.x1, Y.z1) // east
-  edge(Y.gate.x1, Y.z1, Y.x1, Y.z1) // south, after the gate
+  if (westGate) {
+    edge(Y.x0, Y.z1, Y.x1, Y.z1) // south
+    edge(Y.x0, Y.z0, Y.x0, Y.gate.z0) // west, either side of the gate
+    edge(Y.x0, Y.gate.z1, Y.x0, Y.z1)
+  } else {
+    edge(Y.x0, Y.z0, Y.x0, Y.z1) // west
+    edge(Y.gate.x1, Y.z1, Y.x1, Y.z1) // south, after the gate
+  }
   let count = 0
   for (const [x0, z0, x1, z1] of runs) count += Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.3)
   const fence = new InstancedMesh(boardGeo, new MeshStandardMaterial({ map: textures().wood, roughness: 0.9 }), count)
@@ -394,13 +435,21 @@ function buildYard(scene) {
   fence.castShadow = true
   fence.receiveShadow = true
   g.add(fence)
-  // Gate posts and an open gate leaf.
-  for (const x of [Y.gate.x0, Y.gate.x1]) box(g, 0.3, 2.8, 0.3, mat('#5e3a1e'), x, 1.4, Y.z1)
-  const gate = box(g, Y.gate.x1 - Y.gate.x0 - 0.4, 2.0, 0.08, mat('#8b5a30', { map: textures().wood }), 0, 1.1, 0)
-  gate.position.set(Y.gate.x0 - 0.2, 1.1, Y.z1 + (Y.gate.x1 - Y.gate.x0) / 2 - 0.2)
-  gate.rotation.y = Math.PI / 2
+  // Gate posts, an open gate leaf swung outward, and the sign beside the gate.
   const yardSign = paintSign({ w: 420, h: 140, bg: '#f6d33c', border: '#3b2a1a', borderW: 10, radius: 8, lines: [{ t: 'JUNK YARD', size: 70, color: '#3b2a1a' }] })
-  signPlane(g, yardSign, 1.6, 0.53, (Y.gate.x1 + Y.gate.x1 + 3) / 2, 2.0, Y.z1 + 0.1)
+  if (westGate) {
+    const gw = Y.gate.z1 - Y.gate.z0
+    for (const z of [Y.gate.z0, Y.gate.z1]) box(g, 0.3, 2.8, 0.3, mat('#5e3a1e'), Y.x0, 1.4, z)
+    const gate = box(g, gw - 0.4, 2.0, 0.08, mat('#8b5a30', { map: textures().wood }), 0, 1.1, 0)
+    gate.position.set(Y.x0 - gw / 2 + 0.2, 1.1, Y.gate.z0 - 0.2)
+    signPlane(g, yardSign, 1.6, 0.53, Y.x0 - 0.12, 2.55, (Y.gate.z0 + Y.gate.z1) / 2, -Math.PI / 2) // over the gateway
+  } else {
+    for (const x of [Y.gate.x0, Y.gate.x1]) box(g, 0.3, 2.8, 0.3, mat('#5e3a1e'), x, 1.4, Y.z1)
+    const gate = box(g, Y.gate.x1 - Y.gate.x0 - 0.4, 2.0, 0.08, mat('#8b5a30', { map: textures().wood }), 0, 1.1, 0)
+    gate.position.set(Y.gate.x0 - 0.2, 1.1, Y.z1 + (Y.gate.x1 - Y.gate.x0) / 2 - 0.2)
+    gate.rotation.y = Math.PI / 2
+    signPlane(g, yardSign, 1.6, 0.53, (Y.gate.x1 + Y.gate.x1 + 3) / 2, 2.0, Y.z1 + 0.1)
+  }
   scene.add(g)
 
   // Dumpster.
@@ -413,17 +462,17 @@ function buildYard(scene) {
   // Trash bags in clusters + big junk pieces.
   const prand = mulberry32(77)
   const bags = []
-  const clusters = [[-12, -29], [-6, -31], [0, -27], [-9, -24], [3, -31]]
+  const clusters = [[-22, -31], [-16, -33], [-10, -29], [-19, -26], [-7, -33]]
   for (let i = 0; i < ECONOMY.yardBags; i++) {
     const [cx, cz] = clusters[i % clusters.length]
     const b = trashBag(i)
-    b.position.set(cx + (prand() - 0.5) * 2.4, 0, cz + (prand() - 0.5) * 2)
+    b.position.set(cx + (prand() - 0.5) * 2.4, 0, cz + (prand() - 0.5) * Math.min(2, Y.z1 - Y.z0 - 1))
     b.scale.setScalar(0.9 + prand() * 0.3)
     scene.add(b)
     bags.push(b)
   }
   const junks = []
-  const junkSpots = [[-13, -26], [-3, -29.5], [4, -26], [-8, -31.5], [-1, -23.5], [7, -29], [-11, -22]]
+  const junkSpots = [[-23, -28], [-13, -31.5], [-6, -28], [-18, -33.5], [-11, -25.5], [-3, -31], [-21, -24]]
   for (let i = 0; i < ECONOMY.yardJunk; i++) {
     const j = junk(i % 7)
     const [x, z] = junkSpots[i % junkSpots.length]
@@ -436,7 +485,7 @@ function buildYard(scene) {
     bags,
     junks,
     dumpPoint: { x: LAYOUT.dumpster.x - 2.2, z: LAYOUT.dumpster.z + 0.4 },
-    inside: (x, z) => x > Y.x0 && x < Y.x1 && z > Y.z0 && z < Y.z1 + 1.5,
+    inside: (x, z) => x > Y.x0 - (Y.gate.side === 'west' ? 1.5 : 0) && x < Y.x1 && z > Y.z0 && z < Y.z1 + (Y.gate.side === 'west' ? 0 : 1.5),
   }
 }
 
@@ -448,35 +497,36 @@ function buildLandscape(scene, lighting) {
     scene.add(obj)
     return obj
   }
+  // Scenery stays on this plot (and behind it): the neighbouring plots stand either side.
+  const mine = ([x, z]) => Math.abs(x) <= PLOT_HALF - 1 && z <= LAYOUT.sidewalk.z1
   // Palms.
-  const palms = [[-34, 1.5], [-36, 20], [-38, 33], [-14, 34.5], [16, 34.5], [27, 22], [31, -17], [52, -17], [52, 4], [-34, -16], [42, 30], [56, 18]]
+  const palms = [[-33.5, 5.8], [-19.5, 5.6], [5, 5.6], [-19.5, 24.6], [5, 24.6], [-30, 16], [-24, 22.5], [30, 14], [32.5, -1], [32.5, -12], [-32.5, -9], [-32.5, -36], [4.5, -34], [33, -37], [-14, -37], [20, -37.5], [-42, 2], [-44, -16], [42, -6], [-48, -34], [-42, 20], [42, 18]].filter(mine)
   palms.forEach(([x, z], i) => {
     add(palm(i + 1, 5.5 + (i % 3)), x, z)
     addFixed(RAPIER.ColliderDesc.cylinder(2, 0.3), { x, y: 2, z })
   })
   // Trees (green + yellow blossom).
-  const trees = [[-44, -4, false], [-46, 12, true], [24, -21, true], [50, -8, false], [58, -24, true], [-42, -26, false], [36, 12, false], [60, 36, true], [-56, 30, false]]
+  const trees = [[-44, -8, false], [-48, 8, true], [40, -22, true], [48, -2, false], [-40, -38, false], [24, -40, true], [-8, -40, false], [54, -36, true], [-60, -20, false]].filter(mine)
   trees.forEach(([x, z, y], i) => {
     add(tree(i + 3, y), x, z)
     addFixed(RAPIER.ColliderDesc.cylinder(1.5, 0.3), { x, y: 1.5, z })
   })
   // Bushes along the lot edges and the building corners.
-  const bushes = [[-32, 6], [-32, 12], [-32, 26], [-20.5, -2.6], [27, 5], [28.5, 14], [28.5, 20], [-10, 36], [10, 36], [22, 36], [-26, 36], [36, 20], [33, 2], [48, 26], [38, -2], [55, -12], [-38, -6]]
+  const bushes = [[-19.6, 3], [25.5, 5.9], [-19.6, 14], [5.4, 12], [12, 10], [24, 12], [-30, 9], [-33, 24], [26.5, 24.5], [32.5, -7], [32.5, -18], [-32.5, -16], [4, -24], [4, -30], [-32.5, -28], [-38, 4], [38, 2], [-40, -24], [40, -14]].filter(mine)
   bushes.forEach(([x, z], i) => add(bush(i + 11, 0.9 + (i % 3) * 0.2), x, z))
   // Planters with flowers at the lot corners.
-  add(planter(4, 2, 3), -30, 36.4)
-  add(planter(4, 2, 4), 26, 36.4)
   // Cacti and rocks out in the sand.
-  const cacti = [[-52, 8], [-60, -12], [-48, -38], [58, 44], [64, -6], [44, -40], [18, -46], [-24, -46], [-66, 40], [70, 20]]
+  const cacti = [[-52, 8], [-60, -12], [-48, -38], [58, 44], [64, -6], [44, -40], [18, -46], [-24, -46], [-66, 40], [70, 20]].filter(mine)
   cacti.forEach(([x, z], i) => add(cactus(i + 2), x, z, i))
   for (let i = 0; i < 26; i++) {
     const r = mulberry32(400 + i)
     const a = r() * Math.PI * 2
     const d = 50 + r() * 26
+    if (!mine([Math.cos(a) * d, Math.sin(a) * d])) continue
     add(rock(i, 0.6 + r() * 1.2), Math.cos(a) * d, Math.sin(a) * d, r() * 3)
   }
   // Street lamps (lit at night).
-  const lampSpots = [[-18, 36.8], [8, 36.8], [-36, 14], [28, 10], [-36, -10]]
+  const lampSpots = [[-17.4, 24.8], [3.4, 24.8], [-17.4, 9.5], [3.4, 9.5], [-33.5, 2.5], [-33.5, 24.6], [17.2, 24.9], [-33, -20], [33, -20]]
   const lampBulbs = []
   for (const [x, z] of lampSpots) {
     const l = streetLamp()
@@ -487,11 +537,14 @@ function buildLandscape(scene, lighting) {
   }
   // Parked cars nose-in at the rooms + one in the far row.
   const cars = [
-    [-10.4, 3.4, '#3cc7b8', '#f4efe2', true],
-    [-7.2, 3.4, '#43c9b5', '#f6f0e4', true],
-    [13.6, 3.4, '#e0322a', '#9fe08a', false],
-    [-35.5, 5.5, '#f2c232', '#fff6e5', true],
-    [16.8, 19.2, '#2f6fd0', '#f4efe2', false],
+    [-10.4, 2.6, '#3cc7b8', '#f4efe2', true],
+    [-7.2, 2.6, '#43c9b5', '#f6f0e4', true],
+    [-0.8, 2.6, '#e0322a', '#9fe08a', false],
+    [2.4, 2.6, '#2f6fd0', '#f4efe2', false],
+    [-4, 13.6, '#f2c232', '#fff6e5', true],
+    [2.4, 13.6, '#3cc7b8', '#f4efe2', false],
+    [-10.4, 18.8, '#e0322a', '#fff6e5', true],
+    [-0.8, 18.8, '#2f6fd0', '#f4efe2', true],
   ]
   cars.forEach(([x, z, c, a, wagon], i) => {
     const cr = car(c, a, { wagon, seed: i })

@@ -318,13 +318,37 @@ export function buildLaundry(statics, live) {
   const basketHome = { x: doorX1 + 0.55, y: FLOOR_Y, z: iz1 - 0.6 }
   basket.position.set(basketHome.x, basketHome.y, basketHome.z)
 
+  // Door: a teal-framed glass door hinged on the west jamb; game.js swings it open
+  // (inward) for whoever walks up. Visual only, like the office door.
+  const dw = doorX1 - doorX0 - 0.24
+  const dh = 2.33
+  const doorPivot = new Group()
+  doorPivot.position.set(doorX0 + 0.12, FLOOR_Y, L.front - 0.15)
+  const leaf = new Group()
+  leaf.position.x = dw / 2
+  doorPivot.add(leaf)
+  const frameM = mat(C.teal, { roughness: 0.5 })
+  box(leaf, dw, 0.12, 0.06, frameM, 0, 0.06, 0)
+  box(leaf, dw, 0.12, 0.06, frameM, 0, dh - 0.06, 0)
+  box(leaf, dw, 0.08, 0.06, frameM, 0, 1.05, 0)
+  box(leaf, 0.08, dh, 0.06, frameM, -dw / 2 + 0.04, dh / 2, 0)
+  box(leaf, 0.08, dh, 0.06, frameM, dw / 2 - 0.04, dh / 2, 0)
+  const dGlass = new Mesh(new PlaneGeometry(dw - 0.16, dh - 0.24), new MeshStandardMaterial({ color: '#dffaff', transparent: true, opacity: 0.22, roughness: 0.05, depthWrite: false, side: DoubleSide }))
+  dGlass.position.y = dh / 2
+  leaf.add(dGlass)
+  for (const s of [-1, 1]) box(leaf, 0.04, 0.3, 0.05, mat('#d9d9d9', { metalness: 0.9, roughness: 0.2 }), dw / 2 - 0.16, 1.15, s * 0.06)
+  const lsC = paintSign({ w: 256, h: 96, bg: '#fff4df', border: '#2fb39c', borderW: 6, radius: 10, lines: [{ t: 'LAUNDRY', size: 50, color: '#1f8f7a' }] })
+  plane(leaf, lsC, 0.46, 0.17, 0, 1.6, 0.035)
+  plane(leaf, lsC, 0.46, 0.17, 0, 1.6, -0.035, Math.PI)
+  live.add(doorPivot)
+
   return {
     washer: { x: wx, z: wz + 0.95, drum, suds: sudsMat, led: ledMat },
     shelf: { x: sx - 0.7, z: sz, stacks, draw: drawLinen },
     basket: { group: basket, pile, home: basketHome },
     clock: hands,
     bounds: { x0: ix0, x1: ix1, z0: iz0, z1: iz1 },
-    door: { x: (doorX0 + doorX1) / 2, z: L.front },
+    door: { x: (doorX0 + doorX1) / 2, z: L.front, pivot: doorPivot },
     lamp,
   }
 }

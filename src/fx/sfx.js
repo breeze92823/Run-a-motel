@@ -11,9 +11,11 @@
 // touches it. Audio starts on the first user gesture.
 
 import { Vector3 } from 'three'
+import { addOutput } from './mixer.js'
 
 let ctx = null
 let master = null
+let masterOut = null // mixer handle (Boxity master volume, ad-break mute)
 let sfxBus = null
 let ambBus = null
 let noiseBuf = null
@@ -48,12 +50,14 @@ function start() {
   comp.threshold.value = -14
   comp.ratio.value = 4
   master.connect(comp).connect(ctx.destination)
+  masterOut = addOutput(master, muted ? 0 : 0.8)
   sfxBus = ctx.createGain()
   sfxBus.gain.value = 0.9
   sfxBus.connect(master)
   ambBus = ctx.createGain()
   ambBus.gain.value = 0.55
   ambBus.connect(master)
+  addOutput(ambBus, 0.55, 'music') // the ambience bed follows Boxity's music_volume
   noiseBuf = makeNoise(3)
   startAmbience()
 }
@@ -74,7 +78,7 @@ export function installAudio() {
 
 export function setMuted(on) {
   muted = on
-  if (master) master.gain.value = on ? 0 : 0.8
+  masterOut?.setBase(on ? 0 : 0.8)
 }
 
 const now = () => ctx.currentTime

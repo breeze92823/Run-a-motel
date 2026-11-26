@@ -3,7 +3,7 @@
 // investments. The game loop (src/game/*) earns money and reads the effect getters below; this
 // module never simulates guests itself. The whole state is saved by net.js (snapshot/hydrate).
 import { ECONOMY, FOOD } from './config.js'
-import { MOTEL, SHOP, SPEED_STEP, STAFF, UPGRADES, POOL_PRICE } from './catalog.js'
+import { AD_REWARD, MOTEL, SHOP, SPEED_STEP, STAFF, UPGRADES, POOL_PRICE } from './catalog.js'
 import { evaluate, inUse } from './decor/rules.js'
 
 const UPGRADE_LIST = Object.values(UPGRADES).flatMap((t) => t.items)
@@ -95,7 +95,12 @@ export const economy = {
   cosmetics: () => [...s.cosmetics],
 
   // --- Effects (read by the game loop) -------------------------------------------
-  payMul: () => (economy.has('cash50') ? 1.5 : 1) * (economy.has('cash2x') ? 2 : 1),
+  payMul: () => (economy.has('cash50') ? 1.5 : 1) * (economy.has('cash2x') ? 2 : 1) * (boostLeft(AD_REWARD.id) > 0 ? AD_REWARD.pay : 1),
+  // The rewarded-ad boost (ui/windows.js, after the server checked the ad's token).
+  grantAdBoost(id, seconds) {
+    s.boosts[id] = Math.max(now(), s.boosts[id] ?? 0) + seconds * 1000
+    changed('boost')
+  },
   tipMax: () => (economy.has('towelPeacock') ? 0.3 : economy.has('towelElephant') ? 0.2 : 0) + (economy.has('sam') ? STAFF_BY_ID.sam.tip : 0),
   coffeeMul: () => (economy.has('premiumBeans') ? 2 : 1),
   // Food (config FOOD): what is on sale, what it costs, which stations run by themselves.

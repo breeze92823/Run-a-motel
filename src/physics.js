@@ -93,7 +93,20 @@ export function addDynamic(mesh, shape, { density = 1, friction = 0.6, restituti
 }
 
 // Fixed collider at a world transform (no body needed for static geometry).
+// While > 0 (withoutColliders), addFixed makes nothing and returns null: the other players' motels
+// (src/remoteMotels.js) reuse the motel builders for their looks only.
+let noColliders = 0
+export function withoutColliders(fn) {
+  noColliders++
+  try {
+    return fn()
+  } finally {
+    noColliders--
+  }
+}
+
 export function addFixed(shape, position, rotation = null, { friction = 0.8, restitution = 0 } = {}) {
+  if (noColliders) return null
   shape.setTranslation(position.x, position.y, position.z).setFriction(friction).setRestitution(restitution)
   if (rotation) shape.setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w })
   return world.createCollider(shape)

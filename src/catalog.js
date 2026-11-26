@@ -116,6 +116,10 @@ export const SHOP = {
   ],
   empire: { id: 'empire', name: 'HOTEL EMPIRE', value: 150000, price: 155000, seconds: 3600, ribbon: 'MEGA', gifts: ['fastRose', 'superVacuum', 'magicBed', 'autoCash'], art: 'empire' },
 }
+// The rewarded-ad reward (Boxity Legion.SDK.ads.showRewarded, checked by the game server): a free
+// timed boost, never sold. placement: Boxity's reporting name (lowercase, digits, hyphens).
+export const AD_REWARD = { id: 'adCash2x', placement: 'double-cash', name: '2x CASH', desc: 'Watch an ad: every guest pays 2x for 5 min', seconds: 300, pay: 2, art: 'cash2x' }
+
 export const SHOP_SECTIONS = [
   { key: 'forever', title: 'FOREVER' },
   { key: 'now', title: 'RIGHT NOW' },

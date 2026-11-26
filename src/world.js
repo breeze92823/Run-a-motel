@@ -16,29 +16,35 @@ import {
   ShapeGeometry,
   Vector2,
 } from 'three'
-import { LAYOUT, WORLD } from './config.js'
+import { Box3, Matrix4, Vector3 } from 'three'
+import { LAYOUT, PLOTS, WORLD } from './config.js'
+import { globalMatrix, plotCount, plotToGlobal } from './plots.js'
 import { RAPIER, addFixed } from './physics.js'
 import { mulberry32, paintSand, toTexture } from './textures.js'
 import { canvas, paintAsphalt, tex } from './motel/paint.js'
 import { std, put } from './propkit.js'
+import { bake } from './bake.js'
 
-// The desert around the motel:
-//  - a flat sand pad (with a hole where the pool basin sinks in),
-//  - rolling dunes rising beyond it, mesas and a water tower on the horizon,
-//  - the highway along the south edge, the asphalt lot and the sidewalk,
+// The desert round the main road and its six motel plots (src/plots.js):
+//  - shared, in the global frame (buildGround's `block`, placed with setPlot): a flat sand pad
+//    round all the plots (a hole where each plot's pool basin sinks in), rolling dunes beyond it,
+//    mesas and a water tower on the horizon, the highway along the plots' fronts;
+//  - per plot, in that plot's frame (buildPlotGround): the asphalt lot, the sidewalk and the fence;
 //  - puffy clouds.
-// Physically: the pad as boxes around the pool hole + an invisible fence.
+// Physically (the player's own plot only): the pad as boxes around the pool hole + an invisible fence.
 
-const INNER = 110 // half-size of the flat pad (m); dunes start past it
+const PAD = PLOTS.pad // half-size of the flat pad round the road's centre (m); dunes start past it
+const CZ = LAYOUT.road.z // the pad is centred on the road (global frame)
+const INNER = 110 // the colliders' pad half-size round the player's own plot
 
 function smoothstep(a, b, x) {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
   return t * t * (3 - 2 * t)
 }
 
-// Dune height at (x, z) for points outside the pad: long wind-blown ridges.
+// Dune height at (x, z) (global frame) for points outside the pad: long wind-blown ridges.
 function duneHeight(x, z) {
-  const d = Math.max(Math.abs(x), Math.abs(z)) - INNER
+  const d = Math.max(Math.abs(x) - PAD.x, Math.abs(z - CZ) - PAD.z)
   const rise = smoothstep(0, 90, d)
   const ridge = Math.sin(x * 0.021 + Math.sin(z * 0.013) * 2.2) * 0.5 + 0.5
   const swell = Math.sin(z * 0.017 + x * 0.006) * 0.5 + 0.5
@@ -56,19 +62,27 @@ function sandMaterial(repeat) {
 function buildPad(root) {
   const { pool } = LAYOUT
   const s = new Shape()
-  s.moveTo(-INNER, -INNER)
-  s.lineTo(INNER, -INNER)
-  s.lineTo(INNER, INNER)
-  s.lineTo(-INNER, INNER)
+  s.moveTo(-PAD.x, -(CZ - PAD.z))
+  s.lineTo(-PAD.x, -(CZ + PAD.z))
+  s.lineTo(PAD.x, -(CZ + PAD.z))
+  s.lineTo(PAD.x, -(CZ - PAD.z))
   s.closePath()
-  // Shape space is (x, -z) once rotated flat.
-  const hole = new Path()
-  hole.moveTo(pool.x0, -pool.z0)
-  hole.lineTo(pool.x0, -pool.z1)
-  hole.lineTo(pool.x1, -pool.z1)
-  hole.lineTo(pool.x1, -pool.z0)
-  hole.closePath()
-  s.holes.push(hole)
+  // Shape space is (x, -z) once rotated flat. One hole per plot's pool basin (global frame).
+  const m = new Matrix4()
+  const box = new Box3()
+  for (let k = 0; k < plotCount; k++) {
+    plotToGlobal(k, m)
+    box.makeEmpty()
+    box.expandByPoint(new Vector3(pool.x0, 0, pool.z0).applyMatrix4(m))
+    box.expandByPoint(new Vector3(pool.x1, 0, pool.z1).applyMatrix4(m))
+    const hole = new Path()
+    hole.moveTo(box.min.x, -box.min.z)
+    hole.lineTo(box.min.x, -box.max.z)
+    hole.lineTo(box.max.x, -box.max.z)
+    hole.lineTo(box.max.x, -box.min.z)
+    hole.closePath()
+    s.holes.push(hole)
+  }
   const geo = new ShapeGeometry(s)
   geo.rotateX(-Math.PI / 2)
   // Shape UVs are metres: scale them to the sand tile.
@@ -91,8 +105,8 @@ function buildDunes(root) {
   const c = new Color()
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i)
-    const z = pos.getZ(i)
-    const inside = Math.abs(x) < INNER && Math.abs(z) < INNER
+    const z = pos.getZ(i) + CZ // the plane is centred on the road
+    const inside = Math.abs(x) < PAD.x && Math.abs(z - CZ) < PAD.z
     const y = inside ? -6 : duneHeight(x, z) - 0.05 // just under the pad where they meet it
     pos.setY(i, y)
     c.copy(dark).lerp(light, Math.min(1, 0.35 + y / 40 + Math.sin(x * 0.05) * 0.1))
@@ -104,6 +118,7 @@ function buildDunes(root) {
   mat.vertexColors = true
   mat.color.set('#ffffff')
   const dunes = new Mesh(geo, mat)
+  dunes.position.z = CZ
   dunes.receiveShadow = true
   root.add(dunes)
 }
@@ -158,7 +173,7 @@ function paintRoad() {
 }
 
 function buildRoad(root) {
-  const { road, sidewalk, lot } = LAYOUT
+  const { road } = LAYOUT
   const len = WORLD.groundSize
   const roadMat = new MeshStandardMaterial({ map: tex(paintRoad(), { repeatX: len / 16 }), roughness: 0.92 })
   const g = new PlaneGeometry(len, road.width)
@@ -177,12 +192,28 @@ function buildRoad(root) {
     sm.receiveShadow = true
     root.add(sm)
   }
+}
+
+// One plot's lot, sidewalk and fence (in that plot's frame). Materials are shared by all six.
+let lotMats = null
+export function buildPlotGround(root) {
+  const { sidewalk, lot } = LAYOUT
+  const len = PLOTS.width
 
   // Parking lot asphalt.
-  const lotTex = paintAsphalt(512, 21, 1)
   const lw = lot.x1 - lot.x0
   const ld = lot.z1 - lot.z0
-  const lotMat = new MeshStandardMaterial({ map: tex(lotTex.color, { repeatX: lw / 12, repeatY: ld / 12 }), normalMap: tex(lotTex.normal, { repeatX: lw / 12, repeatY: ld / 12, srgb: false }), color: '#d9d4cc', roughness: 0.95 })
+  if (!lotMats) {
+    const lotTex = paintAsphalt(512, 21, 1)
+    lotMats = {
+      lot: new MeshStandardMaterial({ map: tex(lotTex.color, { repeatX: lw / 12, repeatY: ld / 12 }), normalMap: tex(lotTex.normal, { repeatX: lw / 12, repeatY: ld / 12, srgb: false }), color: '#d9d4cc', roughness: 0.95 }),
+      stripe: std('#f4efe2', { roughness: 0.8 }),
+      yellow: std('#f0c040', { roughness: 0.8 }),
+      walk: std('#efe6d6', { roughness: 0.9 }),
+      joint: std('#cfc4b0'),
+    }
+  }
+  const lotMat = lotMats.lot
   const lg = new PlaneGeometry(lw, ld)
   lg.rotateX(-Math.PI / 2)
   const lm = new Mesh(lg, lotMat)
@@ -190,19 +221,10 @@ function buildRoad(root) {
   lm.receiveShadow = true
   root.add(lm)
 
-  // Parking stripes: stalls nose-in facing the rooms, plus a row along the lot middle.
-  const stripe = std('#f4efe2', { roughness: 0.8 })
-  const yellow = std('#f0c040', { roughness: 0.8 })
+  // Parking stripes: one row of stalls nose-in facing the rooms; the aisle runs in front.
+  const { stripe, yellow } = lotMats
   const stripeGeo = new BoxGeometry(0.16, 0.02, 5.2)
-  for (let x = -12; x <= 24; x += 3.2) put(root, stripeGeo, stripe, x, 0.035, 2.2, false).receiveShadow = true
-  for (let x = -38; x <= -22; x += 3.2) put(root, stripeGeo, stripe, x, 0.035, 3.5, false).receiveShadow = true
-  for (let x = -6; x <= 22; x += 3.2) {
-    put(root, stripeGeo, stripe, x, 0.035, 15, false)
-    put(root, stripeGeo, stripe, x, 0.035, 22.5, false)
-  }
-  const lane = new BoxGeometry(lw - 6, 0.02, 0.18)
-  put(root, lane, yellow, (lot.x0 + lot.x1) / 2, 0.035, 9, false)
-  put(root, lane, yellow, (lot.x0 + lot.x1) / 2, 0.035, 29.5, false)
+  for (const z of lot.rows) for (let x = -12; x <= lot.x1 + 0.01; x += 3.2) put(root, stripeGeo, stripe, x, 0.035, z, false).receiveShadow = true
   // Painted arrows toward the office.
   const arrowShape = new Shape()
   arrowShape.moveTo(0, 0.9)
@@ -215,49 +237,53 @@ function buildRoad(root) {
   arrowShape.closePath()
   const ag = new ShapeGeometry(arrowShape)
   ag.rotateX(-Math.PI / 2)
-  for (const [x, z, yaw] of [[-8, 26, Math.PI / 2], [10, 26, Math.PI / 2], [-30, 12, 0]]) {
+  for (const [x, z, yaw] of [[-6, 7.9, Math.PI / 2], [1, 7.9, Math.PI / 2], [-6, 23.4, Math.PI / 2], [1, 23.4, Math.PI / 2]]) {
     const a = new Mesh(ag, yellow)
     a.position.set(x, 0.04, z)
     a.rotation.y = yaw
-    a.scale.setScalar(1.3)
+    a.scale.setScalar(1.0)
     root.add(a)
   }
 
   // Sidewalk along the road: raised concrete with a curb face.
-  const walkMat = std('#efe6d6', { roughness: 0.9 })
+  const walkMat = lotMats.walk
   const swD = sidewalk.z1 - sidewalk.z0
-  const sw = new Mesh(new BoxGeometry(len * 0.25, 0.18, swD), walkMat)
+  const sw = new Mesh(new BoxGeometry(len, 0.18, swD), walkMat)
   sw.position.set(0, 0.09, (sidewalk.z0 + sidewalk.z1) / 2)
   sw.receiveShadow = true
   root.add(sw)
   // Joints every 2 m.
-  const joint = std('#cfc4b0')
   const jg = new BoxGeometry(0.05, 0.01, swD)
-  for (let x = -170; x <= 170; x += 2) put(root, jg, joint, x, 0.185, (sidewalk.z0 + sidewalk.z1) / 2, false)
+  for (let x = -len / 2 + 1; x < len / 2; x += 2) put(root, jg, lotMats.joint, x, 0.185, (sidewalk.z0 + sidewalk.z1) / 2, false)
+  buildFence(root)
 }
 
-// Wire fence on wooden posts around the property edge (the walkable limit), and
-// a water tower off in the dunes.
-function buildFenceAndTower(root) {
+// Wire fence on wooden posts along WORLD.fence (the property line; open where the lot
+// meets the sidewalk).
+function buildFence(root) {
   const post = new MeshStandardMaterial({ color: '#8a5a34', roughness: 1 })
   const wire = new MeshStandardMaterial({ color: '#6d6a66', roughness: 0.6, metalness: 0.4 })
-  const h = WORLD.half
+  const pts = WORLD.fence
   const pg = new BoxGeometry(0.22, 1.6, 0.22)
   const posts = new Group()
   const add = (x, z) => put(posts, pg, post, x, 0.8, z, false)
-  for (let x = -h; x <= h; x += 6) add(x, -h)
-  for (let z = -h; z <= h - 30; z += 6) {
-    add(-h, z)
-    add(h, z)
-  }
-  for (const y of [0.75, 1.3]) {
-    put(posts, new BoxGeometry(h * 2, 0.03, 0.03), wire, 0, y, -h, false)
-    put(posts, new BoxGeometry(0.03, 0.03, h * 2 - 30), wire, -h, y, -15, false)
-    put(posts, new BoxGeometry(0.03, 0.03, h * 2 - 30), wire, h, y, -15, false)
+  add(pts[0][0], pts[0][1])
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, az] = pts[i - 1]
+    const [bx, bz] = pts[i]
+    const len = Math.hypot(bx - ax, bz - az)
+    const n = Math.max(1, Math.round(len / 4))
+    for (let k = 1; k <= n; k++) add(ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n)
+    for (const y of [0.75, 1.3]) {
+      const w = put(posts, new BoxGeometry(len, 0.03, 0.03), wire, (ax + bx) / 2, y, (az + bz) / 2, false)
+      w.rotation.y = -Math.atan2(bz - az, bx - ax)
+    }
   }
   root.add(posts)
+}
 
-  // Water tower.
+// A water tower off in the dunes behind the road (global frame).
+function buildTower(root) {
   const tower = new Group()
   const wood = new MeshStandardMaterial({ color: '#b9a58a', roughness: 1 })
   const tank = new MeshStandardMaterial({ color: '#d9d2c4', roughness: 0.8 })
@@ -297,15 +323,29 @@ function makeClouds() {
     cloud.lookAt(0, cloud.position.y, 0)
     group.add(cloud)
   }
-  return group
+  // ~180 puffs share one material: merged into one mesh (the whole sky turns as a group).
+  return bake(group)
 }
 
+// The shared desert + road (`block`, global frame) and the player's own plot's ground. setPlot(k)
+// places the block round plot k (the one this client plays on; 0 until the server says).
 export function buildGround(root) {
-  buildPad(root)
-  buildDunes(root)
-  buildMesas(root)
-  buildRoad(root)
-  buildFenceAndTower(root)
+  const block = new Group()
+  block.name = 'road-block'
+  block.matrixAutoUpdate = false
+  buildPad(block)
+  buildDunes(block)
+  buildMesas(block)
+  buildRoad(block)
+  buildTower(block)
+  root.add(block)
+  buildPlotGround(root)
+  const setPlot = (k) => {
+    globalMatrix(k, block.matrix)
+    block.matrixWorldNeedsUpdate = true
+  }
+  setPlot(0)
+  return { block, setPlot }
 }
 
 // The pad's colliders: four slabs around the pool hole, and the fence.
@@ -317,12 +357,24 @@ export function landColliders() {
   box(pool.x1, H, -H, H)
   box(pool.x0, pool.x1, -H, pool.z0)
   box(pool.x0, pool.x1, pool.z1, H)
-  const h = WORLD.half
+  const { x0, x1, z0 } = WORLD.plot
+  const z1 = LAYOUT.road.z + 4 // south: just past the highway
   const wall = (x, z, hx, hz) => addFixed(RAPIER.ColliderDesc.cuboid(hx, 3, hz), { x, y: 3, z })
-  wall(0, -h, h, 0.4)
-  wall(0, LAYOUT.road.z + 4, h, 0.4) // south: just past the highway
-  wall(-h, 0, 0.4, h)
-  wall(h, 0, 0.4, h)
+  const cx = (x0 + x1) / 2
+  const cz = (z0 + z1) / 2
+  wall(cx, z0 - 0.4, (x1 - x0) / 2 + 0.4, 0.4)
+  wall(cx, z1, (x1 - x0) / 2 + 0.4, 0.4)
+  wall(x0 - 0.4, cz, 0.4, (z1 - z0) / 2)
+  wall(x1 + 0.4, cz, 0.4, (z1 - z0) / 2)
+  // The property fence: 1.75 m tall (over a jump, under the chase camera's ray).
+  const pts = WORLD.fence
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, az] = pts[i - 1]
+    const [bx, bz] = pts[i]
+    const yaw = -Math.atan2(bz - az, bx - ax)
+    const q = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }
+    addFixed(RAPIER.ColliderDesc.cuboid(Math.hypot(bx - ax, bz - az) / 2 + 0.12, 0.875, 0.12), { x: (ax + bx) / 2, y: 0.875, z: (az + bz) / 2 }, q)
+  }
 }
 
 // Clouds drift slowly round the sky.

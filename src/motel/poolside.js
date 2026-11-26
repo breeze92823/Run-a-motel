@@ -437,6 +437,8 @@ export function dressPool(g, P, solid, water) {
   const pw = P.x1 - P.x0
   const pd = P.z1 - P.z0
   const deep = -P.depth
+  const kx = Math.min(1, pw / 11) // floating toys drift in proportion to the pool
+  const kz = Math.min(1, pd / 9)
   // Coping: 0.56 m stone slabs overhanging the wall by 6 cm, with a rounded bullnose.
   const copeT = tex(paintCoping())
   const cope = mat('#ffffff', { map: copeT, roughness: 0.6 })
@@ -483,14 +485,15 @@ export function dressPool(g, P, solid, water) {
   // Main drains: square anti-vortex grates at the deep end.
   const grate = mat('#e9eef0', { roughness: 0.4 })
   const slotM = mat('#14323e')
-  for (const z of [mz - 1.3, mz + 1.3]) {
+  const dz = Math.min(1.3, pd / 2 - 0.5)
+  for (const z of [mz - dz, mz + dz]) {
     box(st, 0.5, 0.03, 0.5, grate, P.x0 + 2.2, deep + 0.04, z)
     for (let i = 0; i < 6; i++) box(st, 0.4, 0.044, 0.025, slotM, P.x0 + 2.2, deep + 0.04, z - 0.18 + i * 0.072)
   }
   // Return jets (chrome eyeballs) on the end walls.
   const chrome = mat('#dfe5e8', { metalness: 0.9, roughness: 0.18 })
   for (const [x, ry] of [[P.x0 + 0.1, Math.PI / 2], [P.x1 - 0.1, -Math.PI / 2]]) {
-    for (const z of [mz - 2.5, mz + 2.5]) {
+    for (const z of [mz - Math.min(2.5, pd / 2 - 0.5), mz + Math.min(2.5, pd / 2 - 0.5)]) {
       const j = new Group()
       j.position.set(x, -0.62, z)
       j.rotation.y = ry
@@ -505,7 +508,7 @@ export function dressPool(g, P, solid, water) {
     }
   }
   // Skimmers: dark throats at the waterline in the front wall, round lids on the deck.
-  for (const x of [P.x0 + 6.5, P.x1 - 2.2]) {
+  for (const x of pw >= 9 ? [P.x0 + 6.5, P.x1 - 2.2] : [P.x0 + 1.5, P.x1 - 1.0]) {
     box(st, 0.42, 0.2, 0.02, slotM, x, -0.17, P.z1 - 0.1)
     box(st, 0.46, 0.03, 0.03, chrome, x, -0.06, P.z1 - 0.11)
     const lid = new Mesh(new CylinderGeometry(0.22, 0.22, 0.02, 20), mat('#f4f1ea', { roughness: 0.4 }))
@@ -531,7 +534,7 @@ export function dressPool(g, P, solid, water) {
     st.add(bump)
   }
   // Diving board: non-slip top, fulcrum, handrails, anchor bolts.
-  const dbz = mz + 2
+  const dbz = mz + Math.min(2, pd / 2 - 1.2) // = site.js
   const grit = mat('#d8c9a4', { roughness: 1 })
   box(st, 2.3, 0.012, 0.47, grit, P.x0 + 0.5, 0.612, dbz)
   const ful = new Mesh(new CylinderGeometry(0.07, 0.07, 0.62, 12), mat('#f2b632', { roughness: 0.4 }))
@@ -589,24 +592,31 @@ export function dressPool(g, P, solid, water) {
     st.add(obj)
     return obj
   }
-  put(ringBuoy(), P.x1 + 1.3, P.z1 + 1.15, Math.PI)
-  solid(0.08, 0.9, 0.08, P.x1 + 1.3, 0.9, P.z1 + 1.15)
+  const small = pw < 9
+  // Prop spots relative to the pool: the roomy layout (deck all round) or the compact one
+  // for a small pool in a corner (north / west / south decks of ~2 m, deck ext to the east).
+  const spot = small
+    ? { buoy: [P.x1 + 1.3, P.z1 + 1.15], rules: [P.x0 + 1.0, P.z0 - 1.3, 0], rack: [mx + 0.8, P.z0 - 1.35, 0], buckets: [P.x0 - 1.9, P.z1 + 0.35], hose: [P.x0 - 2.2, P.z1 - 0.9], shower: [P.x1 + 1.2, P.z0 + 0.6] }
+    : { buoy: [P.x1 + 1.3, P.z1 + 1.15], rules: [P.x1 + 4.2, P.z1 + 3.4, -0.35], rack: [P.x0 - 3.1, mz - 2.8, Math.PI / 2], buckets: [P.x0 - 2.7, P.z1 + 0.35], hose: [P.x0 - 3.3, P.z1 - 0.9], shower: [P.x1 + 1.5, P.z0 - 1.5] }
+  put(ringBuoy(), spot.buoy[0], spot.buoy[1], Math.PI)
+  solid(0.08, 0.9, 0.08, spot.buoy[0], 0.9, spot.buoy[1])
   const rules = new Group()
   for (const x of [-0.6, 0.6]) box(rules, 0.08, 2.2, 0.08, mat('#f4efe6'), x, 1.1, 0)
   rbox(rules, 1.4, 1.7, 0.06, 0.02, mat('#1f6f8b'), 0, 1.25, 0.04)
   const rm = new Mesh(new PlaneGeometry(1.3, 1.6), new MeshStandardMaterial({ map: canvasTex(paintRules()), roughness: 0.6 }))
   rm.position.set(0, 1.25, 0.075)
   rules.add(rm)
-  put(rules, P.x1 + 4.2, P.z1 + 3.4, -0.35)
-  solid(0.7, 1.1, 0.1, P.x1 + 4.2, 1.1, P.z1 + 3.4)
-  put(poleRack(), P.x0 - 3.1, mz - 2.8, Math.PI / 2)
-  solid(0.1, 0.6, 1.0, P.x0 - 3.1, 0.6, mz - 2.8)
-  put(bucket('CHLORINE', '#2f6fd0'), P.x0 - 2.7, P.z1 + 0.35, 0.3)
-  put(bucket('PH+', '#e2382a'), P.x0 - 3.15, P.z1 + 0.05, -0.2)
-  put(hoseReel(), P.x0 - 3.3, P.z1 - 0.9, 0.2)
-  solid(0.55, 0.5, 0.6, P.x0 - 3.0, 0.5, P.z1 - 0.3)
-  put(shower(), P.x1 + 1.5, P.z0 - 1.5, Math.PI)
-  solid(0.08, 1.2, 0.08, P.x1 + 1.5, 1.2, P.z0 - 1.5)
+  put(rules, spot.rules[0], spot.rules[1], spot.rules[2])
+  solid(0.7, 1.1, 0.1, spot.rules[0], 1.1, spot.rules[1], spot.rules[2])
+  put(poleRack(), spot.rack[0], spot.rack[1], spot.rack[2])
+  solid(0.1, 0.6, 1.0, spot.rack[0], 0.6, spot.rack[1], spot.rack[2] - Math.PI / 2)
+  const [bx, bz] = spot.buckets
+  put(bucket('CHLORINE', '#2f6fd0'), bx, bz, 0.3)
+  put(bucket('PH+', '#e2382a'), bx - 0.45, bz - 0.3, -0.2)
+  put(hoseReel(), spot.hose[0], spot.hose[1], 0.2)
+  solid(0.55, 0.5, 0.6, (bx + spot.hose[0]) / 2, 0.5, (bz + spot.hose[1]) / 2 - 0.1)
+  put(shower(), spot.shower[0], spot.shower[1], Math.PI)
+  solid(0.08, 1.2, 0.08, spot.shower[0], 1.2, spot.shower[1])
   g.add(bake(st, true))
 
   // Closed: loungers stacked by the east deck. Open: laid out with umbrellas.
@@ -617,10 +627,11 @@ export function dressPool(g, P, solid, water) {
     l.rotation.y = (i % 2) * 0.05
     stack.add(l)
   }
-  stack.position.set(P.x1 + 3, 0.06, P.z0 + 2)
+  const stackAt = small ? [P.x1 + 4.1, P.z0 - 0.3] : [P.x1 + 3, P.z0 + 2]
+  stack.position.set(stackAt[0], 0.06, stackAt[1])
   stack.rotation.y = Math.PI / 2
   g.add(stack)
-  solid(0.4, 0.5, 1.0, P.x1 + 3, 0.5, P.z0 + 2)
+  solid(0.4, 0.5, 1.0, stackAt[0], 0.5, stackAt[1])
   const open = new Group()
   const cushions = ['#27a596', '#f06a34', '#2f6fd0', '#f2b632']
   const towels = ['#ff7fb0', '#f2b632', '#5ac46a', '#2f6fd0', null, '#e2382a']
@@ -630,17 +641,35 @@ export function dressPool(g, P, solid, water) {
     l.rotation.y = ry
     open.add(l)
   }
-  // East row (heads east) and south row (heads south).
-  const ex = P.x1 + 2.8
-  ;[P.z0 + 1.4, P.z0 + 3.1, P.z1 - 2.6, P.z1 - 0.9].forEach((z, i) => lay(ex, z, 0, i))
-  const sz = P.z0 - 2.4
-  ;[P.x0 + 2.5, P.x0 + 4.2, P.x1 - 3.5, P.x1 - 1.8].forEach((x, i) => lay(x, sz, Math.PI / 2, i + 4))
-  const umbrellas = [
-    [ex, P.z0 + 2.25, '#f06a34', '#fff3dc'],
-    [ex, P.z1 - 1.75, '#27a596', '#fff3dc'],
-    [P.x0 + 3.35, sz, '#2f6fd0', '#ffffff'],
-    [P.x1 - 2.65, sz, '#e2382a', '#fff3dc'],
-  ]
+  // Loungers heading east (along x) and heading south (along z), as [x, z].
+  let eastRow, southRow, umbrellas, binAt
+  if (small) {
+    // South deck (between the pool and the building) + two on the deck extension.
+    const lz = P.z1 + 0.95
+    eastRow = [[P.x0 + 0.7, lz], [P.x0 + 3.3, lz], [P.x1 - 0.2, lz], [P.x1 + 3.1, P.z0], [P.x1 + 3.1, P.z0 - 1.0]]
+    southRow = []
+    umbrellas = [
+      [P.x0 + 2.0, P.z1 + 1.75, '#f06a34', '#fff3dc'],
+      [P.x0 + 4.55, P.z1 + 1.75, '#27a596', '#fff3dc'],
+      [P.x1 + 5.1, P.z0 - 0.5, '#2f6fd0', '#ffffff'],
+    ]
+    binAt = [P.x1 + 1.0, P.z0 - 1.2]
+  } else {
+    // East row (heads east) and south row (heads south).
+    const ex = P.x1 + 2.8
+    const sz = P.z0 - 2.4
+    eastRow = [P.z0 + 1.4, P.z0 + 3.1, P.z1 - 2.6, P.z1 - 0.9].map((z) => [ex, z])
+    southRow = [P.x0 + 2.5, P.x0 + 4.2, P.x1 - 3.5, P.x1 - 1.8].map((x) => [x, sz])
+    umbrellas = [
+      [ex, P.z0 + 2.25, '#f06a34', '#fff3dc'],
+      [ex, P.z1 - 1.75, '#27a596', '#fff3dc'],
+      [P.x0 + 3.35, sz, '#2f6fd0', '#ffffff'],
+      [P.x1 - 2.65, sz, '#e2382a', '#fff3dc'],
+    ]
+    binAt = [P.x1 + 2.8, P.z0 - 1.6]
+  }
+  eastRow.forEach(([x, z], i) => lay(x, z, 0, i))
+  southRow.forEach(([x, z], i) => lay(x, z, Math.PI / 2, i + 4))
   for (const [x, z, a, b] of umbrellas) {
     const u = umbrella(a, b)
     u.position.set(x, 0.06, z)
@@ -651,7 +680,7 @@ export function dressPool(g, P, solid, water) {
     open.add(t)
   }
   const bin = towelBin()
-  bin.position.set(P.x1 + 2.8, 0.06, P.z0 - 1.6)
+  bin.position.set(binAt[0], 0.06, binAt[1])
   open.add(bin)
   open.visible = false
   g.add(open)
@@ -692,7 +721,8 @@ export function dressPool(g, P, solid, water) {
   }
   // Underwater lights (glow once the pool is open).
   const lensM = new MeshStandardMaterial({ color: '#eaffff', emissive: '#9ff2ff', emissiveIntensity: 0, roughness: 0.1 })
-  for (const [x, z, ry] of [[mx - 2.5, P.z0 + 0.1, 0], [mx + 2.5, P.z0 + 0.1, 0], [mx, P.z1 - 0.1, Math.PI]]) {
+  const lx = Math.min(2.5, pw / 2 - 1)
+  for (const [x, z, ry] of [[mx - lx, P.z0 + 0.1, 0], [mx + lx, P.z0 + 0.1, 0], [mx, P.z1 - 0.1, Math.PI]]) {
     const l = new Group()
     l.position.set(x, -0.95, z)
     l.rotation.y = ry
@@ -714,10 +744,10 @@ export function dressPool(g, P, solid, water) {
       stack.visible = !v
       if (v && !openSolids.length) {
         // Colliders for the laid-out loungers and umbrella tables.
-        for (const z of [P.z0 + 1.4, P.z0 + 3.1, P.z1 - 2.6, P.z1 - 0.9]) openSolids.push(solid(0.95, 0.35, 0.36, ex, 0.4, z))
-        for (const x of [P.x0 + 2.5, P.x0 + 4.2, P.x1 - 3.5, P.x1 - 1.8]) openSolids.push(solid(0.36, 0.35, 0.95, x, 0.4, sz))
+        for (const [x, z] of eastRow) openSolids.push(solid(0.95, 0.35, 0.36, x, 0.4, z))
+        for (const [x, z] of southRow) openSolids.push(solid(0.36, 0.35, 0.95, x, 0.4, z))
         for (const [x, z] of umbrellas) openSolids.push(solid(0.36, 0.5, 0.36, x, 0.5, z))
-        openSolids.push(solid(0.42, 0.5, 0.27, P.x1 + 2.8, 0.5, P.z0 - 1.6))
+        openSolids.push(solid(0.42, 0.5, 0.27, binAt[0], 0.5, binAt[1]))
       }
     },
     update(dt, t, waterY, fill) {
@@ -734,9 +764,9 @@ export function dressPool(g, P, solid, water) {
       const show = fill > 0.95
       floatRing.visible = ball.visible = show
       if (show) {
-        floatRing.position.set(mx + 2 + Math.sin(t * 0.13) * 1.5, waterY + 0.05 + Math.sin(t * 1.7) * 0.025, mz - 1 + Math.cos(t * 0.11) * 1.2)
+        floatRing.position.set(mx + (2 + Math.sin(t * 0.13) * 1.5) * kx, waterY + 0.05 + Math.sin(t * 1.7) * 0.025, mz + (-1 + Math.cos(t * 0.11) * 1.2) * kz)
         floatRing.rotation.z = t * 0.05
-        ball.position.set(mx - 2.5 + Math.cos(t * 0.09) * 1.2, waterY + 0.12 + Math.sin(t * 2.1 + 1) * 0.03, mz + 1.5 + Math.sin(t * 0.1) * 0.9)
+        ball.position.set(mx + (-2.5 + Math.cos(t * 0.09) * 1.2) * kx, waterY + 0.12 + Math.sin(t * 2.1 + 1) * 0.03, mz + (1.5 + Math.sin(t * 0.1) * 0.9) * kz)
         ball.rotation.set(t * 0.3, t * 0.2, 0)
       }
     },

@@ -6,6 +6,9 @@ import { LOCK_TEXT, SHOP, SHOP_SECTIONS, STAFF, UPGRADE_TABS, UPGRADES } from '.
 import { art, GIFT_ART } from './art.js'
 import { sfx } from '../audio.js'
 import { coinBurst, confetti, counter, floatText, money, pulse } from './fx.js'
+import { adsAvailable, showRewarded } from '../bloxity.js'
+import { claimAdReward } from '../net.js'
+import { AD_REWARD } from '../catalog.js'
 
 const TAB_ART = { coffee: 'tabCoffee', rooms: 'tabRooms', ads: 'tabAds' }
 const TITLES = { upgrades: 'UPGRADES', hiring: 'HIRING', shop: 'SHOP' }
@@ -436,12 +439,64 @@ export function createWindows({ reservedTop = () => 0 } = {}) {
     update()
     return card
   }
+  // Rewarded ad (Boxity runs the ad): AD_REWARD.seconds of 2x income. Shown only inside Boxity
+  // while it can serve an ad; granted only once the game server checked Boxity's reward token.
+  function adCard(i) {
+    const it = AD_REWARD
+    const card = h('div', 'mw-card now wide')
+    card.style.setProperty('--i', i)
+    card.innerHTML = `<div class="mw-ribbon-tag"><span>FREE</span></div><div class="mw-art">${art(it.art)}</div>
+      <div class="mw-info"><h3 style="font-size:calc(var(--u) * ${fit(it.name, 31, 400)}px)">${it.name}</h3><p style="font-size:calc(var(--u) * ${fit(it.desc, 24, 400)}px)">${it.desc}</p></div>`
+    const btn = h('button', 'mw-btn')
+    card.querySelector('.mw-info').appendChild(btn)
+    const badge = h('span', 'count')
+    let busy = false
+    let note = ''
+    btn.addEventListener('click', async () => {
+      if (busy || economy.boostLeft(it.id) > 0) return sfx('tap')
+      busy = true
+      note = ''
+      update()
+      const r = await showRewarded(it.placement)
+      const ok = r.status === 'completed' && (await claimAdReward(r.rewardToken, it.placement))
+      busy = false
+      if (ok) {
+        economy.grantAdBoost(it.id, it.seconds)
+        sfx('coins')
+        confetti(btn, 30)
+        pulse(moneyPill, 'bump')
+      } else note = 'TRY AGAIN LATER'
+      update()
+    })
+    const update = () => {
+      card.style.display = adsAvailable() ? '' : 'none'
+      const left = economy.boostLeft(it.id)
+      let st
+      if (busy) st = { kind: 'wait', label: 'LOADING AD...' }
+      else if (left > 0) st = { kind: 'have', label: `2x ACTIVE ${clock(left)}` }
+      else st = { kind: 'buy', label: note || '▶ WATCH AD' }
+      paintButton(btn, st, { base: 30, avail: 186 })
+      if (left > 0) {
+        badge.textContent = clock(left)
+        if (!badge.isConnected) card.appendChild(badge)
+      } else badge.remove()
+    }
+    updaters.push(update)
+    update()
+    return card
+  }
+
   function renderShop() {
     const panel = win.querySelector('.mw-panel')
     panel.innerHTML = ''
     const list = h('div', 'mw-list')
     updaters = []
     let i = 0
+    {
+      const grid = h('div', 'mw-grid two')
+      grid.appendChild(adCard(i++))
+      list.appendChild(grid)
+    }
     for (const sec of SHOP_SECTIONS) {
       list.appendChild(h('div', 'mw-sec', `<b>${sec.title}</b>`))
       if (sec.key === 'empire') {

@@ -30,6 +30,7 @@ const FRONT = B.front
 const WALK_Z = FRONT + 1.6 // NPC lane along the walkway
 const SPINE_X = -14.4 // NPC lane down the lot
 const ROAD_EXIT_X = -70
+const { streetZ: STREET_Z, curbZ: CURB_Z, lotZ: LOT_Z } = LAYOUT.npc
 const DOOR_X = LAYOUT.officeDoorX
 const TOOL_NAME = { trash: 'BAG', sponge: 'SPONGE', vacuum: 'VACUUM', mop: 'MOP', brush: 'BRUSH', hands: 'HANDS' }
 const rnd = (a, b) => a + Math.random() * (b - a)
@@ -363,7 +364,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
   const appealNow = () => curb.appeal(outdoorLitter.filter((l) => !l.taken).length, grime.length)
   const food = createFood({
     scene, fx, hud, play, bank, call, kitchen: motel.kitchen, office, rooms: roomState, player, playerGroup, S, floorAt, hired,
-    P: { FRONT, WALK_Z, SPINE_X, DOOR_X, EXIT_X: ROAD_EXIT_X },
+    P: { FRONT, WALK_Z, SPINE_X, DOOR_X, EXIT_X: ROAD_EXIT_X, STREET_Z, CURB_Z, LOT_Z },
     rate,
     payCounter,
     dropCash,
@@ -407,7 +408,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     const [tx, tz] = slot
     const outside = g.w.z > FRONT
     const pts = []
-    if (g.stage === 'arriving') pts.push([g.w.x, 37], [SPINE_X, 30], [SPINE_X, FRONT + 2.2])
+    if (g.stage === 'arriving') pts.push([g.w.x, CURB_Z], [SPINE_X, LOT_Z], [SPINE_X, FRONT + 2.2])
     if ((outside || g.stage === 'arriving') && tz < FRONT) pts.push([DOOR_X, FRONT + 1.4], [DOOR_X, FRONT - 1.6])
     pts.push([tx, tz])
     return pts
@@ -565,7 +566,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     hud.float(new Vector3(r.doorX, 2.9, FRONT + 0.6), '★'.repeat(Math.round(score)), '#ffd34a')
     g.w.x = r.doorX
     g.w.z = FRONT - 1.4
-    g.w.go([[r.doorX, FRONT + 0.8], [r.doorX, WALK_Z], [SPINE_X, WALK_Z], [SPINE_X, 30], [-30, 38.2], [ROAD_EXIT_X, 38.2]], () => removeGuest(g))
+    g.w.go([[r.doorX, FRONT + 0.8], [r.doorX, WALK_Z], [SPINE_X, WALK_Z], [SPINE_X, LOT_Z], [SPINE_X, STREET_Z], [ROAD_EXIT_X, STREET_Z]], () => removeGuest(g))
   }
   // The room as a guest leaves it: used bed, trash, dust, stains, mud, a dirty bathroom.
   function leaveDirty(rs) {
@@ -587,7 +588,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     rate(1.5)
     hud.toast('A guest got tired of waiting and left 😠')
     g.stage = 'leaving'
-    g.w.go([[DOOR_X, FRONT - 1.6], [DOOR_X, WALK_Z], [SPINE_X, WALK_Z], [SPINE_X, 30], [ROAD_EXIT_X, 38.2]], () => removeGuest(g))
+    g.w.go([[DOOR_X, FRONT - 1.6], [DOOR_X, WALK_Z], [SPINE_X, WALK_Z], [SPINE_X, LOT_Z], [SPINE_X, STREET_Z], [ROAD_EXIT_X, STREET_Z]], () => removeGuest(g))
   }
   function removeGuest(g) {
     scene.remove(g.p.group)
@@ -988,7 +989,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     state: S, rooms: roomState, guests, queue, food, curb, clean,
     leaveDirty: (i) => leaveDirty(roomState[i]),
     talk, giveKey, takePayment, collectCash,
-    spawnGuest: () => spawnGuest(-6, 39.2, false),
+    spawnGuest: () => spawnGuest(LAYOUT.busStop.x, LAYOUT.sidewalk.z0 + 1.7, false),
     // Dev: does the next cleaning job in room i (like Rose).
     cleanStep: (i) => clean.staffStep(roomState[i], cleanCtx),
     appeal: appealNow,
@@ -1228,6 +1229,13 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     for (const g of guests) if (dist2(g.w.x, g.w.z, DOOR_X, FRONT) < 6) officeOpen = true
     for (const c of food.customers) if (dist2(c.w.x, c.w.z, DOOR_X, FRONT) < 6) officeOpen = true
     office.door.pivot.rotation.y += ((officeOpen ? 1.4 : 0) - office.door.pivot.rotation.y) * Math.min(1, dt * 6)
+    // Laundry door: opens for the player or Lou.
+    const ld = laundry.door
+    if (ld.pivot) {
+      const lou = staff.lou
+      const laundryOpen = near(ld.x, ld.z, 2.4) || (lou && dist2(lou.w.x, lou.w.z, ld.x, ld.z) < 6)
+      ld.pivot.rotation.y += ((laundryOpen ? 1.4 : 0) - ld.pivot.rotation.y) * Math.min(1, dt * 6)
+    }
     office.blades.rotation.y += dt * 5
     // Laundry clock hands.
     const d = new Date()
@@ -1472,7 +1480,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     }, n * 900 + 2500)
   }
 
-  return { update, hud, state: S }
+  return { update, hud, state: S, decor }
 }
 
 // Physics helpers are injected (keeps this module free of a hard import cycle).

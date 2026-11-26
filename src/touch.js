@@ -158,8 +158,8 @@ export function installTouch(actions) {
 
   let sprinting = false
   const cluster = el('div', 'touch-cluster')
+  if (actions.mode) cluster.append(button('mode', 'CAM', actions.mode))
   cluster.append(
-    button('mode', 'CAM', actions.mode),
     button('sprint', 'RUN', (b) => {
       sprinting = !sprinting
       b.classList.toggle('on', sprinting)

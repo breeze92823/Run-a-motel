@@ -12,26 +12,61 @@ export const DEV_MODE = import.meta.env.VITE_DEV_MODE === 'true'
 // spawns on the lot looking north at the building.
 export const GROUND_Y = 0
 export const WORLD = {
-  half: 78, // walkable square half-size (invisible fence on its edge)
+  // The walkable square (invisible walls on its edge; the south one is just past the highway).
+  plot: { x0: -35, x1: 35, z0: -38.6 },
+  // The property fence (x, z points, posts + 1.75 m colliders) round the back and sides;
+  // the front is open to the sidewalk. 70 x 64.1 m up to the sidewalk = ~4487 m2
+  // (deepened for the 28.5 m lot).
+  fence: [[-35, 25.2], [-35, -38.6], [35, -38.6], [35, 25.2]],
   groundSize: 1400, // the visible desert plane
   sandTile: 14, // m per sand texture tile
 }
-export const SPAWN = { x: 2, y: 0.05, z: 13 }
+// The road: PLOTS.count motel plots (one per player in the room: backend ROOM_MAX_CLIENTS), 3 on
+// each side of the main road, side by side (plot width apart). Every client draws its OWN plot at
+// the coordinates above (all of src/motel and src/game work in them) and the other five around it
+// (src/plots.js maps plot frames; the far side is turned 180 degrees round the road's centre line).
+// Slot -> column (-1 west, 0 middle, 1 east); even slots on this side, odd ones across the road, so
+// the first two players face each other.
+export const PLOTS = {
+  count: 6,
+  width: 70, // = WORLD.plot x1 - x0: neighbours share a fence line
+  columns: [0, 0, -1, -1, 1, 1],
+  pad: { x: 150, z: 110 }, // half-size of the flat sand round the whole road (about its centre)
+  detailRange: 75, // m: a remote motel's rooms, plates and furniture are only drawn this close to the camera
+  detailRangeTouch: 45, // the same on phones / tablets (weaker GPUs)
+  updateRange: 110, // m: its road sign's bulbs chase this close
+}
+
+// The other players (src/remotePlayers.js, src/presence.js; backend presence.ts).
+export const NET = {
+  poseEvery: 0.1, // s between pose messages while moving
+  poseStill: 2, // s: a player standing still re-sends this often
+  lookEvery: 1, // s between checks of the outfit / emote
+  remoteMax: 5, // other players drawn (the room holds 6)
+  remoteEase: 10, // 1/s: how fast the drawn position catches the latest pose
+  remoteLead: 0.12, // s of dead reckoning past the latest pose
+  remoteStale: 1.5, // s without a pose: the player stands still
+  remoteSnap: 8, // m: a jump this far is a teleport (no glide)
+  remoteTagRange: [30, 90], // m: name tags fade out over this camera distance
+}
+
+export const SPAWN = { x: -7, y: 0.05, z: 5.6 }
 export const SPAWN_FACING = Math.PI // yaw the character faces on spawn (PI = toward -Z)
 
 // --- Player modes (modes.js) -------------------------------------------------
 // 'character' = third-person chase cam with the avatar on screen.
 // 'player' = first-person, the camera is the player's eyes and the avatar is hidden.
-export const MODES = ['character', 'player']
-export const START_MODE = 'character'
+// First person only (third person removed); list both again to bring back V / CAM / wheel switching.
+export const MODES = ['player']
+export const START_MODE = 'player'
 
 // --- Physics (physics.js, player.js) ------------------------------------------
 export const PHYSICS = {
   gravity: -22, // m/s^2 for dynamic bodies and the player
   fixedStep: 1 / 60, // s per physics tick; rendering interpolates between ticks
   maxSubSteps: 5, // a long frame never runs more ticks than this
-  walkSpeed: 8, // m/s
-  sprintSpeed: 14, // m/s with Shift held
+  walkSpeed: 5.5, // m/s
+  sprintSpeed: 9.5, // m/s with Shift held
   accel: 70, // m/s^2 toward the target velocity on the ground
   airAccel: 22, // m/s^2 steering while airborne
   decel: 60, // m/s^2 when no key is held
@@ -45,7 +80,7 @@ export const PHYSICS = {
   pushMass: 80, // kg the character weighs when shoving crates
   killY: -6, // sank this far: respawn
 }
-export const PLAYER_DIMS = { radius: 0.75, height: 1.8 } // capsule the character controller moves
+export const PLAYER_DIMS = { radius: 0.38, height: 1.8 } // capsule the character controller moves (0.76 m wide: fits the 1.12 m room doors and 0.95 m bathroom doorways)
 
 // --- Look ------------------------------------------------------------------
 export const RENDER = { exposure: 1.0 }
@@ -86,7 +121,12 @@ export const TIME_OF_DAY = {
   },
 }
 export const LIGHT = {
-  shadowRange: 55, // half-width of the sun's shadow box around the player
+  shadowRange: 46, // half-width of the sun's shadow box (sharper than a bigger box, same map)
+  shadowAhead: 0.32, // the box sits this much of its half-width ahead of the player, toward the view
+  // Shadow casters (src/shadowCasters.js): pieces under this radius cast no shadow (under ~2 shadow
+  // texels), nor do pieces inside a roofed room this far behind its front wall (the sun cannot reach).
+  shadowMinRadius: 0.05,
+  indoorSunReach: 2.6,
   lampColor: '#ffb35c',
   lampDistance: 22,
 }
@@ -168,6 +208,10 @@ export const SETTINGS = {
   camera_sensitivity: { def: '1', type: 'number', min: 0.1, max: 5 },
   show_fps: { def: 'false', type: 'bool' },
   fullscreen: { def: 'false', type: 'bool' },
+  // Boxity's menu sliders, "0".."100" (src/fx/mixer.js): every sound, and the ambience (wind,
+  // birds, crickets: the game has no music track, so music_volume drives that bed).
+  master_volume: { def: '80', type: 'number', min: 0, max: 100 },
+  music_volume: { def: '80', type: 'number', min: 0, max: 100 },
 }
 
 // The base rig, measured from player.glb: origin at the feet, 6.4 units tall at bind pose.
@@ -269,26 +313,34 @@ export function coerceSetting(key, raw) {
 // The two-storey block faces south (+Z). Ground floor: the office at its west
 // end, then rooms 101..106; the 2nd floor (201..207) opens in a later phase.
 export const LAYOUT = {
-  road: { z: 46, width: 12 },
-  sidewalk: { z0: 37.5, z1: 40 },
-  lot: { x0: -40, x1: 30, z0: -3, z1: 37.5 },
+  road: { z: 34, width: 12 },
+  sidewalk: { z0: 25.5, z1: 28 },
+  // Three rows of 5 stalls (one by the walkway, a back-to-back pair mid-lot) with aisles
+  // between; the west strip (x0..-12) is the walk-in lane up to the office.
+  lot: { x0: -18, x1: 4, z0: -3, z1: 25.5, rows: [2.2, 13.6, 18.8] },
   building: { x0: -20, x1: 26, front: -6, depth: 10, floorH: 3.7, walk: 3.4 },
   office: { x0: -20, x1: -12 },
   rooms: { x0: -12, x1: 26, count: 6, first: 101 }, // ground floor
   upper: { x0: -20, x1: 26, count: 7, first: 201 }, // locked 2nd floor
   laundry: { x0: -28, x1: -20, front: -4, back: -12.5, height: 4.3 },
   stairs: { x0: 26.6, x1: 29, zBottom: 1.2, zTop: -3.4 },
-  fountain: { x: 44, z: 22, r: 5.2 },
-  sign: { x: 31, z: 31 },
-  pool: { x0: 34, x1: 45, z0: -13, z1: -4, depth: 1.6, deck: { x0: 30, x1: 54, z0: -19, z1: 6 } },
-  monument: { x: -25, z: 32 },
-  vacancyBoard: { x: -35.5, z: 31 },
-  busStop: { x: -6, z: 39 },
-  busLaneZ: 42.6,
-  // Junk yard behind the building: a plank fence with a gate on its south-west
-  // side, the dumpster inside, trash bags and big junk to clear out.
-  junkYard: { x0: -16, x1: 10, z0: -33, z1: -20, gate: { x0: -16, x1: -11 } },
-  dumpster: { x: 6.5, z: -22.4 },
+  // Front strip by the sidewalk: fountain west of the lot, signs east of it.
+  fountain: { x: -26.5, z: 1.6, r: 3.2, plaza: 1.6 },
+  sign: { x: 32.3, z: 23.8 },
+  // Behind the building, east of the junk yard.
+  pool: { x0: 11, x1: 22, z0: -32.5, z1: -23.5, depth: 1.6, deck: { x0: 7, x1: 31, z0: -36.1, z1: -19.9 } },
+  monument: { x: 11, z: 21.6 },
+  vacancyBoard: { x: 21.5, z: 22.5 },
+  busStop: { x: -6, z: 27 },
+  busLaneZ: 30.6,
+  // NPC lanes between the bus stop and the building: along the sidewalk, at the curb,
+  // and across the lot aisle (the walkers then head up SPINE_X in game.js).
+  npc: { streetZ: 26.2, curbZ: 25, lotZ: 24.2 },
+  // Junk yard behind the building: a plank fence with the gate in its south side at the
+  // west end (gate.side 'south' with x0/x1, or 'west' with z0/z1), the dumpster inside,
+  // trash bags and big junk to clear out.
+  junkYard: { x0: -26, x1: 0, z0: -35, z1: -22, gate: { side: 'south', x0: -26, x1: -21 } },
+  dumpster: { x: -3.5, z: -24.4 },
   // Office (walk-in): the counter runs across the lobby; the player checks guests
   // in from behind it, guests line up in front and out of the door.
   officeDoorX: -17.6,

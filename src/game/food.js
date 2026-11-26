@@ -57,7 +57,7 @@ export function createFood(ctx) {
   function spawnWalkIn() {
     const p = makePerson(randomLook(seed++ * 17))
     scene.add(p.group)
-    const w = new Walker(p, -34, 38.6, 0.18)
+    const w = new Walker(p, -34, P.STREET_Z + 0.4, 0.18)
     const c = { p, w, kind: pickKind(), stage: 'arriving', patience: FOOD_RULES.walkInPatience, slot: -1 }
     customers.push(c)
     routeQueue()
@@ -74,7 +74,7 @@ export function createFood(ctx) {
         return
       }
       const pts = first
-        ? [[c.w.x, 37], [P.SPINE_X, 30], [P.SPINE_X, FRONT + 2.2], [P.DOOR_X, FRONT + 1.4], [P.DOOR_X, FRONT - 1.6], [tx + 0.6, -8.2], [tx, tz]]
+        ? [[P.SPINE_X, P.STREET_Z + 0.4], [P.SPINE_X, P.LOT_Z], [P.SPINE_X, FRONT + 2.2], [P.DOOR_X, FRONT + 1.4], [P.DOOR_X, FRONT - 1.6], [tx + 0.6, -8.2], [tx, tz]]
         : [[tx, tz]]
       c.w.go(pts, () => {
         c.stage = 'waiting'
@@ -88,7 +88,7 @@ export function createFood(ctx) {
       ctx.rate(1.8)
       hud.toast(`A customer got tired of waiting for ${FOOD[c.kind].name.toLowerCase()} 😠`)
     }
-    c.w.go([[P.DOOR_X + 0.3, -7.8], [P.DOOR_X, FRONT - 1.6], [P.DOOR_X, P.WALK_Z], [P.SPINE_X, P.WALK_Z], [P.SPINE_X, 30], [-30, 38.6], [P.EXIT_X, 38.6]], () => {
+    c.w.go([[P.DOOR_X + 0.3, -7.8], [P.DOOR_X, FRONT - 1.6], [P.DOOR_X, P.WALK_Z], [P.SPINE_X, P.WALK_Z], [P.SPINE_X, P.LOT_Z], [P.SPINE_X, P.STREET_Z + 0.4], [P.EXIT_X, P.STREET_Z + 0.4]], () => {
       scene.remove(c.p.group)
       customers.splice(customers.indexOf(c), 1)
     })
