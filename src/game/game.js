@@ -21,7 +21,7 @@ import { litter as makeLitter } from '../motel/props.js'
 import { makePerson, randomLook, Walker } from '../motel/people.js'
 import { mat } from '../motel/kit.js'
 import { interiorMats } from '../motel/rooms.js'
-import { createCleaning, TOOL_KEY } from './clean.js'
+import { createCleaning } from './clean.js'
 import { createCars } from './cars.js'
 import { createCurb } from './curb.js'
 import { createFood } from './food.js'
@@ -357,6 +357,8 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     takeCleanSet: () => (S.cleanSets > 0 ? (S.cleanSets--, true) : false),
     addDirtyLinen: (n) => (S.dirtyLinen += n),
     toast: (t) => hud.toast(t),
+    inside: (rs) => roomAt(player.position.x, player.position.z) === rs,
+    pos: () => ({ x: player.position.x, z: player.position.z }),
     onTaskDone: (rs, t) => {
       void t
       refreshRoom(rs)
@@ -804,18 +806,22 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     return best
   }
 
-  // Wrong tool? HANDS jobs switch for you; the cleaning tools must be picked from the hotbar.
-  const needsTool = (c) => c.tool && c.tool !== S.tool && c.tool !== 'hands'
+  // The right tool comes out by itself when you press / hold E on its job. The only thing that
+  // stops it is carrying something (the basket / junk pins HANDS): put it down first.
+  const needsTool = (c) => !!c.tool && c.tool !== 'hands' && c.tool !== S.tool && !!S.carry
+  function autoTool(c) {
+    if (c.tool && c.tool !== S.tool && !needsTool(c)) setTool(c.tool)
+  }
   function press() {
     if (hud.menuOpen() || panelOpen() || decor.isOpen()) return
     const c = action
     if (!c) return
-    if (c.tool === 'hands' && S.tool !== 'hands') setTool('hands')
     if (needsTool(c)) {
       play('error')
-      hud.toast(`Use the ${TOOL_NAME[c.tool]} (${TOOL_KEY[c.tool]}) for this`)
+      hud.toast(`Put down what you are carrying to use the ${TOOL_NAME[c.tool]}`)
       return
     }
+    autoTool(c)
     if (!c.hold && !c.warn) {
       c.run()
       action = null
@@ -1102,6 +1108,12 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     }
     curb.update(dt * spawnMul())
 
+    // The bag comes out by itself when you walk up to trash while there is no tool job in reach
+    // (a tool job switches the tool itself when you hold E), then walking over the trash sucks it in.
+    if (S.tool !== 'trash' && !S.carry && !S.holdKey && !action?.tool && S.bag < bagCap()) {
+      const lists = [outdoorLitter, yardBags, ...roomState.map((rs) => rs.litter)]
+      if (lists.some((list) => list.some((it) => !it.taken && dist2(px, pz, it.x, it.z) < 1.5 * 1.5))) setTool('trash')
+    }
     // Trash bag: walking over trash sucks it in.
     if (S.tool === 'trash' && !S.carry) {
       const cap = bagCap()
@@ -1217,7 +1229,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
       const wrong = needsTool(action)
       const holding = S.holdKey && !wrong && !action.warn
       if (holding) {
-        if (action.tool === 'hands' && S.tool !== 'hands') setTool('hands')
+        autoTool(action)
         S.holdT += dt * (action.tool === 'sponge' && bank.has?.('turboSponge') ? 2 : 1)
         const p = Math.min(1, S.holdT / action.hold)
         action.progress?.(p, dt)
@@ -1229,10 +1241,10 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
           action.run()
         }
       }
-      hud.setPrompt({ text: wrong ? `${action.text} · needs ${TOOL_NAME[action.tool]} (${TOOL_KEY[action.tool]})` : `${action.text} · HOLD`, hold: S.holdT / action.hold, warn: action.warn || wrong })
+      hud.setPrompt({ text: wrong ? `${action.text} · put down what you carry first` : `${action.text} · HOLD`, hold: S.holdT / action.hold, warn: action.warn || wrong })
     } else {
       S.holdRef = null
-      if (action) hud.setPrompt({ text: needsTool(action) ? `${action.text} · needs ${TOOL_NAME[action.tool]} (${TOOL_KEY[action.tool]})` : action.text, warn: action.warn || needsTool(action) })
+      if (action) hud.setPrompt({ text: needsTool(action) ? `${action.text} · put down what you carry first` : action.text, warn: action.warn || needsTool(action) })
       else hud.setPrompt(null)
     }
     held?.setUsing?.(using)
@@ -1387,6 +1399,17 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
           S.dirtyLinen = 0
           startWash(load)
         }
+      }
+    }
+
+    // Laundry chute (upgrade): used sheets slide straight into the washer and the clean sets go
+    // to the shelf by themselves: no basket trips.
+    if (bank.has?.('laundryChute')) {
+      if (washer.state === 'done') foldWash()
+      else if (washer.state === 'idle' && S.dirtyLinen > 0 && S.carry?.kind !== 'basket') {
+        const load = S.dirtyLinen
+        S.dirtyLinen = 0
+        startWash(load)
       }
     }
 

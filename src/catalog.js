@@ -109,7 +109,7 @@ export const SHOP = {
     { id: 'superVacuum', name: 'SUPER TOOLS', desc: 'Vacuum, mop, brush and scrub 3x faster', price: 3000, small: true, art: 'vacuum' },
     { id: 'fastRose', name: 'FAST ROSE', desc: 'Rose cleans 2x faster', price: 1800, art: 'fastRose' },
     { id: 'nightShift', name: 'NIGHT SHIFT', desc: "Up to 60 min of income while you're away", price: 1800, small: true, art: 'nightShift' },
-    { id: 'laundryChute', name: 'LAUNDRY CHUTE', desc: 'Baskets slide to the washer', price: 950, art: 'chute' },
+    { id: 'laundryChute', name: 'LAUNDRY CHUTE', desc: 'Used sheets slide into the washer and come back clean by themselves · washes 1.6x faster', price: 400, art: 'chute' },
     { id: 'megaBag', name: 'MEGA BAG', desc: 'A huge trash bag', price: 600, art: 'megaBag' },
   ],
   now: [

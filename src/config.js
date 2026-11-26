@@ -368,7 +368,7 @@ export const LAYOUT = {
 export const ECONOMY = {
   startMoney: 60,
   startRating: 3.8,
-  startCleanSets: 4,
+  startCleanSets: 8, // enough for the first guests: the first wash comes much later
   busEvery: 75, // s between buses
   firstBus: 14, // s until the first bus
   nights: [1, 3], // a guest books 1..3 nights: pays price x nights
@@ -389,6 +389,7 @@ export const ECONOMY = {
   openRooms: 1, // rooms open at the start (101); open the rest at their doors
   unlockRoom: [0, 120, 300, 650, 1300, 2500], // price to open each ground-floor room (~x2 a room: quick first rooms, slower later)
   // Cleaning a room after checkout (s of holding E; cleanSpeedMul divides them).
+  zoneExtra: 0.35, // a zone hold (vacuum / mop / sponge) takes this share of a spot's time per extra spot
   stripTime: 1.2, // strip the used sheets (HANDS)
   makeTime: 1.6, // make the bed with a clean set (HANDS)
   vacuumTime: 1.4, // one dusty patch of carpet (VACUUM)

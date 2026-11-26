@@ -6,7 +6,9 @@
 //   muddy footprints / puddles (MOP), the toilet (BRUSH), the sink + mirror (SPONGE)
 // Holding E on a task fades its dirt (opacity + shrink) with bubbles / dust / water
 // particles; the room's CLEAN % is done tasks / all tasks. Rose (housekeeper) works
-// the same list one task at a time.
+// the same list one task at a time. The player works by ZONE: standing in the room, one hold
+// with the tool cleans ALL its spots (VACUUM = every dust patch, MOP = every muddy patch,
+// SPONGE = every stain + the sink), taking `ECONOMY.zoneExtra` of a spot's time per extra spot.
 import { ECONOMY } from '../config.js'
 import { messExtra } from './pacing.js'
 
@@ -25,6 +27,13 @@ export const TASKS = {
   toilet: { tool: 'brush', text: 'SCRUB THE TOILET', time: 'toiletTime', icon: '🚽', row: 'Clean the toilet' },
   sink: { tool: 'sponge', text: 'WIPE THE SINK & MIRROR', time: 'sinkTime', icon: '🚰', row: 'Wipe sink & mirror' },
 }
+// Zone jobs (player): one hold per tool for every spot of these kinds in the room.
+const ZONES = {
+  vacuum: { kinds: ['dust'], tool: 'vacuum', text: 'VACUUM THE WHOLE ROOM', time: 'vacuumTime' },
+  mop: { kinds: ['mud'], tool: 'mop', text: 'MOP THE WHOLE FLOOR', time: 'mopTime' },
+  sponge: { kinds: ['stain', 'sink'], tool: 'sponge', text: 'SCRUB STAINS & SINK', time: 'scrubTime' },
+}
+const ZONE_KINDS = new Set(Object.values(ZONES).flatMap((z) => z.kinds))
 const ROW_ORDER = ['strip', 'make', 'trash', 'dust', 'stain', 'mud', 'toilet', 'sink']
 export const TOOL_KEY = { trash: '1', sponge: '2', vacuum: '3', mop: '4', brush: '5', hands: '6' }
 
@@ -72,6 +81,7 @@ export function createCleaning({ fx, play, spawnLitter, scene }) {
       }
     }
     rs.tasks = tasks
+    rs.zoneP = {}
     rs.cleanPct = 0
   }
 
@@ -110,8 +120,22 @@ export function createCleaning({ fx, play, spawnLitter, scene }) {
   // Interaction candidates for a dirty room.
   function gather(rs, near, addC, ctx) {
     const mul = ctx.speedMul()
+    const inside = ctx.inside?.(rs)
+    if (inside) {
+      // One hold per tool cleans every spot of its kinds (the spot nearest to you is the focus).
+      const me = ctx.pos()
+      for (const [id, z] of Object.entries(ZONES)) {
+        const left = (rs.tasks ?? []).filter((t) => !t.done && z.kinds.includes(t.kind))
+        if (!left.length) continue
+        let at = left[0]
+        for (const t of left) if ((t.x - me.x) ** 2 + (t.z - me.z) ** 2 < (at.x - me.x) ** 2 + (at.z - me.z) ** 2) at = t
+        const hold = (ECONOMY[z.time] * (1 + ECONOMY.zoneExtra * (left.length - 1))) / mul
+        addC({ key: `zone:${rs.r.number}:${id}`, x: at.x, z: at.z, r: 99, text: left.length > 1 ? `${z.text} (${left.length})` : z.text, tool: z.tool, hold, startP: rs.zoneP?.[id] ?? 0, progress: (p, dt) => zoneProgress(rs, id, p, dt), run: () => finishZone(rs, id, ctx), prio: 1 })
+      }
+    }
     for (const t of rs.tasks ?? []) {
       if (t.done || t.kind === 'trash') continue
+      if (inside && ZONE_KINDS.has(t.kind)) continue // done through its zone job above
       const def = TASKS[t.kind]
       const r = t.kind === 'strip' || t.kind === 'make' ? 1.7 : t.kind === 'toilet' || t.kind === 'sink' ? 1.3 : 1.25
       if (!near(t.x, t.z, r)) continue
@@ -123,6 +147,28 @@ export function createCleaning({ fx, play, spawnLitter, scene }) {
       }
       if (t.kind === 'strip' && stripped(rs)) continue
       addC({ key: t, x: t.x, z: t.z, r, text: def.text, tool: def.tool, hold: ECONOMY[def.time] / mul, startP: t.p, progress: (p, dt) => progress(rs, t, p, dt), run: () => finish(rs, t, ctx), prio: 1 })
+    }
+  }
+
+  const zoneTasks = (rs, id) => (rs.tasks ?? []).filter((t) => !t.done && ZONES[id].kinds.includes(t.kind))
+  // E held on a zone job: every spot of the zone fades together; one of them plays the work fx.
+  function zoneProgress(rs, id, p, dt) {
+    const list = zoneTasks(rs, id)
+    if (!list.length) return
+    ;(rs.zoneP ??= {})[id] = p
+    for (const t of list) {
+      t.p = Math.min(1, p)
+      setFade(t, t.p)
+    }
+    progress(rs, list[Math.floor(Math.random() * list.length)], p, dt)
+  }
+  function finishZone(rs, id, ctx) {
+    const list = zoneTasks(rs, id)
+    for (const t of list) finish(rs, t, ctx, true)
+    if (rs.zoneP) rs.zoneP[id] = 0
+    if (list.length) {
+      play('chime', { x: list[0].x, y: 0.4, z: list[0].z })
+      ctx.onTaskDone(rs, list[list.length - 1])
     }
   }
 
@@ -162,7 +208,7 @@ export function createCleaning({ fx, play, spawnLitter, scene }) {
   }
 
   // A task completed (by the player or by Rose).
-  function finish(rs, t, ctx) {
+  function finish(rs, t, ctx, quiet = false) {
     if (t.done) return
     if (t.kind === 'make') {
       if (!ctx.takeCleanSet()) {
@@ -183,8 +229,8 @@ export function createCleaning({ fx, play, spawnLitter, scene }) {
     if (t.kind === 'strip' || t.kind === 'make') {
       fx.dust(at.x, 0.9, at.z + 1, 10, '#ffffff', 0.8)
       play('swoosh', at)
-    } else play('chime', at)
-    ctx.onTaskDone(rs, t)
+    } else if (!quiet) play('chime', at)
+    if (!quiet) ctx.onTaskDone(rs, t)
   }
 
   // Rose: does the next task in the room. Returns the task she did (or null).
