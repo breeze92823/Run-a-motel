@@ -34,7 +34,6 @@ const SPINE_X = -14.4 // NPC lane down the lot
 const ROAD_EXIT_X = -70
 const { streetZ: STREET_Z, curbZ: CURB_Z, lotZ: LOT_Z } = LAYOUT.npc
 const DOOR_X = LAYOUT.officeDoorX
-const TOOL_NAME = { trash: 'BAG', sponge: 'SPONGE', vacuum: 'VACUUM', mop: 'MOP', brush: 'BRUSH', hands: 'HANDS' }
 const rnd = (a, b) => a + Math.random() * (b - a)
 const rndi = (a, b) => Math.floor(rnd(a, b + 1))
 const dist2 = (ax, az, bx, bz) => (ax - bx) ** 2 + (az - bz) ** 2
@@ -123,12 +122,9 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
   function syncTool() {
     const id = hotbar?.selected
     if (!id) return
-    if (S.carry && id !== 'hands') {
-      hud.toast('Put down what you are carrying first')
-      hotbar.select('hands', { silent: true })
-      S.tool = 'hands'
-      return
-    }
+    // Picking a tool while carrying puts the item down (it used to pin HANDS with no way out
+    // once the food's order was gone).
+    if (S.carry && id !== 'hands') putDown()
     S.tool = id
   }
 
@@ -833,11 +829,8 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     if (hud.menuOpen() || panelOpen() || decor.isOpen()) return
     const c = action
     if (!c) return
-    if (needsTool(c)) {
-      play('error')
-      hud.toast(`Put down what you are carrying to use the ${TOOL_NAME[c.tool]}`)
-      return
-    }
+    // E on a tool job while carrying: put the item down, then the tool comes out.
+    if (needsTool(c)) putDown()
     autoTool(c)
     if (!c.hold && !c.warn) {
       c.run()
@@ -893,7 +886,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
   }
   function carryJunk(j) {
     j.taken = true
-    S.carry = { kind: 'junk', obj: j.obj, item: j }
+    S.carry = { kind: 'junk', obj: j.obj, item: j, home: { y: j.obj.position.y, s: j.obj.scale.x, r: j.obj.rotation.clone() } }
     scene.remove(j.obj)
     j.obj.position.set(0, 2.25, 0)
     j.obj.rotation.set(0, 0, 0)
@@ -902,6 +895,38 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     fx.dust(j.x, 0.2, j.z, 12)
     play('thud', { x: j.x, y: 0.5, z: j.z })
   }
+  // Junk set down at your feet (to use a tool); pick it up again later.
+  function dropJunk() {
+    const j = S.carry
+    S.carry = null
+    playerGroup.remove(j.obj)
+    scene.add(j.obj)
+    const it = j.item
+    it.x = player.position.x
+    it.z = player.position.z
+    it.taken = false
+    j.obj.position.set(it.x, j.home?.y ?? 0, it.z)
+    if (j.home?.r) j.obj.rotation.copy(j.home.r)
+    j.obj.scale.setScalar(j.home?.s ?? 1)
+    play('thud', { x: it.x, y: 0.5, z: it.z })
+  }
+  // Whatever you carry goes down so a tool can come out: the basket goes back home, junk drops
+  // at your feet, food goes back on its station (or the bin when the station is busy again).
+  function putDown() {
+    const c = S.carry
+    if (!c) return
+    if (c.kind === 'basket') {
+      dropBasket()
+      hud.toast('Put the laundry basket back')
+    } else if (c.kind === 'junk') {
+      dropJunk()
+      hud.toast('Put the junk down · carry it to the dumpster later')
+    } else if (c.kind === 'food') {
+      const where = food.putDown()
+      hud.toast(where === 'station' ? 'Put the food back on its station' : 'Binned the food')
+    } else S.carry = null
+  }
+  const carryName = () => ({ basket: 'basket', junk: 'junk', food: 'food' })[S.carry?.kind] ?? 'item'
   let flying = null // junk arcing into the dumpster
   function throwJunk() {
     const j = S.carry
@@ -1262,10 +1287,10 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
           action.run()
         }
       }
-      hud.setPrompt({ text: wrong ? `${action.text} · put down what you carry first` : `${action.text} · HOLD`, hold: S.holdT / action.hold, warn: action.warn || wrong })
+      hud.setPrompt({ text: wrong ? `${action.text} · E puts down the ${carryName()}` : `${action.text} · HOLD`, hold: S.holdT / action.hold, warn: action.warn })
     } else {
       S.holdRef = null
-      if (action) hud.setPrompt({ text: needsTool(action) ? `${action.text} · put down what you carry first` : action.text, warn: action.warn || needsTool(action) })
+      if (action) hud.setPrompt({ text: needsTool(action) ? `${action.text} · E puts down the ${carryName()}` : action.text, warn: action.warn })
       else hud.setPrompt(null)
     }
     held?.setUsing?.(using)

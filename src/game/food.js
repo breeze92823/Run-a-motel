@@ -337,6 +337,23 @@ export function createFood(ctx) {
     return c.obj
   }
 
+  // Put the carried food down (to use a tool): it goes back on its station as READY when the
+  // station is free, otherwise it is binned. Returns 'station' | 'bin' | null.
+  function putDown() {
+    const c = S.carry
+    if (c?.kind !== 'food') return null
+    dropCarried()
+    const s = stations[c.food]
+    if (s && s.stage < 0 && open(c.food)) {
+      s.stage = 3
+      s.p = 0
+      s.st.set(3, 1)
+      play('pickup', s.st.workAt)
+      return 'station'
+    }
+    return 'bin'
+  }
+
   function gather(near, addC) {
     // Phone.
     if (phone.ringing && near(LAYOUT.phonePoint.x, LAYOUT.phonePoint.z, 1.5)) addC({ x: LAYOUT.phonePoint.x, z: LAYOUT.phonePoint.z, r: 1.5, text: 'ANSWER THE PHONE', run: () => answer(), prio: 5 })
@@ -542,6 +559,7 @@ export function createFood(ctx) {
 
   return {
     gather,
+    putDown,
     update,
     objective,
     onGuestSettled,
