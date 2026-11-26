@@ -96,8 +96,9 @@ export function createCars({ scene, fx }) {
     c.i = 0
   }
 
-  // A guest checked in: a car drives in and parks. Returns null when the lot is full.
-  function arrive() {
+  // A car drives in and parks (onParked(car) once it stands in its stall: a drive-in guest gets
+  // out then). Returns null when the lot is full.
+  function arrive(onParked = null) {
     const s = pickStall()
     if (!s) return null
     s.taken = true
@@ -105,6 +106,7 @@ export function createCars({ scene, fx }) {
     c.stall = s
     c.state = 'arriving'
     c.wantLeave = false
+    c.onParked = onParked
     c.v = 0
     c.yaw = Math.PI / 2 // facing east along the road
     c.root.position.set(-FAR_X + 4, 0, ROAD_Z)
@@ -158,6 +160,9 @@ export function createCars({ scene, fx }) {
     c.root.rotation.y = c.yaw
     c.collider = addFixed(RAPIER.ColliderDesc.cuboid(1.0, 0.9, 2.35), { x: s.x, y: 0.9, z: s.z })
     stopSound(c)
+    const cb = c.onParked
+    c.onParked = null
+    cb?.(c)
     if (c.wantLeave) depart(c)
   }
 

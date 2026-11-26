@@ -1,8 +1,8 @@
 // Curb appeal: how the motel looks from the road. Litter piles up on the parking lot,
 // grime on the walkway, and vandals spray graffiti and stick posters on the outside
 // walls (motel/building.js wallSpots). Graffiti is scrubbed off with the SPONGE,
-// posters are torn down by HAND. appeal() is 0..100: below CURB.noGuestsBelow the bus
-// drives past and walk-ins stop coming, even when rooms are clean.
+// posters are torn down by HAND. appeal() is 0..100: lower appeal means fewer and poorer
+// guests and worse reviews, but never none (CURB in config.js).
 import { Mesh, MeshStandardMaterial, PlaneGeometry } from 'three'
 import { CURB } from '../config.js'
 import { paintGraffiti, paintPoster, tex } from '../motel/paint.js'
@@ -31,8 +31,8 @@ export function createCurb({ scene, spots, fx, play, bank, hud }) {
   }
   for (let i = 0; i < CURB.startGraffiti; i++) spawn('graffiti')
   for (let i = 0; i < CURB.startPosters; i++) spawn('poster')
-  let gT = rnd(...CURB.graffitiEvery)
-  let pT = rnd(...CURB.posterEvery)
+  let gT = rnd(...CURB.graffitiEvery) + (CURB.grace ?? 0)
+  let pT = rnd(...CURB.posterEvery) + (CURB.grace ?? 0)
 
   const count = (kind) => marks.filter((m) => m.kind === kind).length
   function appeal(litter, grime) {

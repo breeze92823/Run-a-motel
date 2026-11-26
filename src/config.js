@@ -374,6 +374,7 @@ export const ECONOMY = {
   nights: [1, 3], // a guest books 1..3 nights: pays price x nights
   nightSeconds: 22, // s one night lasts in the room
   deskPatience: 80, // s a guest waits at the desk before leaving unhappy (until you talk)
+  noRoomPatience: 0.5, // patience runs this fast while no room is ready (you are cleaning one)
   // Rooms start at 1 star; each upgrade adds one. The type follows the stars.
   roomTypes: [
     { id: 'regular', name: 'REGULAR', minStars: 1, priceAdd: 0 },
@@ -403,10 +404,10 @@ export const ECONOMY = {
   washTime: 16, // s per wash
   trashCapacity: 12,
   trashPay: 2, // $ per piece dumped
-  litterEvery: 22, // s between new pieces of litter on the lot
+  litterEvery: 28, // s between new pieces of litter on the lot
   litterMax: 24,
   grimeMax: 8,
-  grimeEvery: 32, // s between new grime stains
+  grimeEvery: 42, // s between new grime stains
   yardBags: 14, // trash bags lying in the junk yard at the start
   yardJunk: 7, // big junk pieces (carried by hand, one at a time)
   yardBagPay: 3,
@@ -422,6 +423,16 @@ export const ECONOMY = {
 // (open rooms - 1) x perRoom + franchise level x perFranchise; heat 0 (one room, first run) is
 // the plain game. Demand grows with the rooms so every room bought earns more; the work grows
 // with heat so staff and upgrades matter later.
+// --- Drive-in guests (game.js driveIn, game/cars.js): between buses guests come by car, park on
+// the lot and walk to the office, whether a room is ready or not (they wait while you clean), so
+// there is always someone to serve. They drive off again at checkout (or if they give up).
+export const DRIVE_IN = {
+  first: 6, // s until the first car
+  every: [20, 32], // s between cars at heat 0; / (1 + heat x perHeat) as the motel grows
+  perHeat: 0.5,
+  maxQueue: 3, // no new car while this many guests already wait at the desk
+}
+
 export const PACING = {
   heat: { perRoom: 1 / 9, perFranchise: 0.2, max: 1.6 },
   // Guests per bus: min = 1 + floor(open / minPerRooms), max = 1 + ceil(open x maxPerRoom)
@@ -473,20 +484,27 @@ export const FOOD_RULES = {
 }
 
 // --- Curb appeal (game/curb.js): litter on the parking lot, grime on the walkway, graffiti
-// and posters on the outside walls. Below `noGuestsBelow` % the bus drives past and walk-ins
-// stop coming, even with clean rooms; below `fewerBelow` fewer guests get off.
+// and posters on the outside walls. It never stops guests coming (that killed the start):
+// below `fewerBelow` % one guest fewer gets off each bus, below `fewestBelow` only half of them
+// (at least one), drive-in cars and food walk-ins come less often, and a dirty lot means
+// poorer guests (decor attraction) and lower reviews.
 export const CURB = {
-  graffitiEvery: [55, 85], // s between new graffiti
-  posterEvery: [35, 60], // s between new posters
+  graffitiEvery: [75, 115], // s between new graffiti
+  posterEvery: [55, 85], // s between new posters
   graffitiMax: 6,
   posterMax: 8,
   startGraffiti: 1,
   startPosters: 1,
+  grace: 120, // s before the first new graffiti / poster on a new motel (the start stays tidy)
   graffitiTime: 2.2, // s to scrub graffiti off (SPONGE)
   posterTime: 0.8, // s to tear a poster down (HANDS)
-  cost: { litter: 1.4, grime: 2.5, graffiti: 9, poster: 5 }, // % appeal lost per piece
-  noGuestsBelow: 45,
-  fewerBelow: 70,
+  cost: { litter: 1.2, grime: 2.2, graffiti: 7, poster: 4 }, // % appeal lost per piece
+  startLitter: 3, // lot litter / walkway grime at the start (the motel opens looking fine)
+  startGrime: 1,
+  lowKeep: 0.5, // below fewestBelow: this share of a bus's guests still get off (at least 1)
+  lowSlow: 1.8, // below fewerBelow: drive-ins and walk-ins come this much less often (x2 below fewestBelow)
+  fewestBelow: 35,
+  fewerBelow: 60,
   cleanBonus: 2, // $ for each graffiti / poster removed
 }
 

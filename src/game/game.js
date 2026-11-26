@@ -11,7 +11,7 @@
 // motel gets no guests. Also: junk yard, dumpster, fountain, pool, furnishing rooms.
 // Money, upgrades, staff and room furniture live in the shared economy (bank).
 import { BoxGeometry, Mesh, MeshStandardMaterial, PlaneGeometry, PointLight, Vector3 } from 'three'
-import { CURB, ECONOMY, LAYOUT, PACING, PHYSICS } from '../config.js'
+import { CURB, DRIVE_IN, ECONOMY, LAYOUT, PACING, PHYSICS } from '../config.js'
 import { bank, call, openPanel, panelOpen } from './bank.js'
 import { createHud } from './hud.js'
 import { createDecor, decorSfx } from '../decor/index.js'
@@ -25,7 +25,7 @@ import { createCleaning, TOOL_KEY } from './clean.js'
 import { createCars } from './cars.js'
 import { createCurb } from './curb.js'
 import { createFood } from './food.js'
-import { busGap, busGuests, patienceMul, rushHour, setPacing, spawnMul } from './pacing.js'
+import { busGap, busGuests, pacing, patienceMul, rushHour, setPacing, spawnMul } from './pacing.js'
 
 const B = LAYOUT.building
 const FRONT = B.front
@@ -65,6 +65,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     dirtyLinen: 0,
     rating: ECONOMY.startRating,
     busTimer: ECONOMY.firstBus,
+    carTimer: DRIVE_IN.first,
     nextTour: false,
     holdKey: false,
     holdT: 0,
@@ -234,7 +235,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     if (Math.random() < 0.3) return [rnd(-12, 25), rnd(FRONT + 0.6, FRONT + B.walk)]
     return [rnd(L.x0 + 2, L.x1 - 2), rnd(L.z0 + 1, L.z1 - 2)]
   }
-  for (let i = 0; i < 6; i++) spawnLitter(...randomLotSpot())
+  for (let i = 0; i < CURB.startLitter; i++) spawnLitter(...randomLotSpot())
   let litterT = ECONOMY.litterEvery
   const grime = []
   const grimeMats = interiorMats().stains
@@ -248,7 +249,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     scene.add(m)
     grime.push({ mesh: m, x, z, p: 0 })
   }
-  for (let i = 0; i < 2; i++) spawnGrime()
+  for (let i = 0; i < CURB.startGrime; i++) spawnGrime()
   let grimeT = ECONOMY.grimeEvery
 
   // --- Junk yard ---------------------------------------------------------------------------
@@ -381,7 +382,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     const m = wantMin(g)
     return m >= 5 ? '5-STAR' : m >= 4 ? '★4 ROOM' : m >= 3 ? 'COMFORT' : 'REGULAR'
   }
-  function spawnGuest(x, z, tourist) {
+  function spawnGuest(x, z, tourist, car = null) {
     const look = randomLook(guestSeed++ * 31 + Math.floor(Math.random() * 999))
     if (tourist) {
       look.hat = 'sun'
@@ -397,10 +398,31 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     const tier = pre
     const want = tier.minStars >= 5 ? '5-star' : tier.minStars >= 3 ? 'comfort' : 'regular'
     const g = { id: guestSeed, p, w, tourist, want, tier, auraT: 0, nights: rndi(...ECONOMY.nights), type: GUEST_TYPES[typeIdx], stage: 'arriving', patience: ECONOMY.deskPatience * (tier?.patience ?? 1) * patienceMul(), room: null, stay: 0 }
+    if (car) g.car = car // a drive-in guest: they walk back to it when they leave
     guests.push(g)
     queue.push(g)
     routeQueue()
     return g
+  }
+  // A drive-in guest: the car parks, the guest gets out beside it and walks to the office.
+  function driveIn() {
+    return cars.arrive((c) => {
+      const g = spawnGuest(c.x + 1.6, c.z, false, c)
+      if (!hired('sam') && queue.length === 1) hud.toast(`A guest drove in · ${roomState.some((rs) => rs.state === 'ready') ? 'check them in at the desk' : 'get a room clean for them!'}`)
+      return g
+    })
+  }
+  // Leaves through their parked car when they have one (else false).
+  function leaveByCar(g, from) {
+    const car = g.car
+    if (!car || car.state !== 'parked') return false
+    const gx = car.x + 1.6
+    g.w.go([...from, [gx, WALK_Z], [gx, car.z]], () => {
+      g.p.group.visible = false
+      cars.depart(car)
+      removeGuest(g)
+    })
+    return true
   }
   function queueSlot(i) {
     const q = LAYOUT.queue
@@ -410,7 +432,8 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     const [tx, tz] = slot
     const outside = g.w.z > FRONT
     const pts = []
-    if (g.stage === 'arriving') pts.push([g.w.x, CURB_Z], [SPINE_X, LOT_Z], [SPINE_X, FRONT + 2.2])
+    if (g.stage === 'arriving' && g.car) pts.push([g.w.x, WALK_Z])
+    else if (g.stage === 'arriving') pts.push([g.w.x, CURB_Z], [SPINE_X, LOT_Z], [SPINE_X, FRONT + 2.2])
     if ((outside || g.stage === 'arriving') && tz < FRONT) pts.push([DOOR_X, FRONT + 1.4], [DOOR_X, FRONT - 1.6])
     pts.push([tx, tz])
     return pts
@@ -520,7 +543,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     if (!byClerk) hud.announce(`WELCOME! · ROOM ${rs.r.number}`, `${g.nights} night${g.nights > 1 ? 's' : ''} · $${g.pay}`, 2.4)
     const r = rs.r
     g.stage = 'toRoom'
-    g.car = cars.arrive() // their car drives in and parks on the lot (none when the lot is full)
+    g.car ??= cars.arrive() // their car drives in and parks on the lot (none when the lot is full)
     const bp = r.interior.bedPoint
     g.w.go([[DOOR_X, FRONT - 1.6], [DOOR_X, WALK_Z], [r.doorX, WALK_Z], [r.doorX, FRONT + 0.8], [r.doorX, FRONT - 1.4], [bp.x + 0.6, bp.z]], () => {
       g.stage = 'inRoom'
@@ -604,6 +627,7 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     rate(1.5)
     hud.toast('A guest got tired of waiting and left 😠')
     g.stage = 'leaving'
+    if (leaveByCar(g, [[DOOR_X, FRONT - 1.6], [DOOR_X, WALK_Z]])) return
     g.w.go([[DOOR_X, FRONT - 1.6], [DOOR_X, WALK_Z], [SPINE_X, WALK_Z], [SPINE_X, LOT_Z], [SPINE_X, STREET_Z], [ROAD_EXIT_X, STREET_Z]], () => removeGuest(g))
   }
   function removeGuest(g) {
@@ -1038,6 +1062,14 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     PHYSICS.walkSpeed = baseWalk * slow
     PHYSICS.sprintSpeed = baseSprint * slow
 
+    // Drive-in guests between buses (always, clean rooms or not: they wait while you clean).
+    S.carTimer -= dt
+    if (S.carTimer <= 0) {
+      const slow = S.appeal < CURB.fewestBelow ? CURB.lowSlow * 2 : S.appeal < CURB.fewerBelow ? CURB.lowSlow : 1
+      S.carTimer = (rnd(...DRIVE_IN.every) / (1 + pacing.heat * DRIVE_IN.perHeat)) * slow
+      if (queue.length < DRIVE_IN.maxQueue) driveIn()
+    }
+
     // Bus schedule.
     if (bus.state === 'away') {
       S.busTimer -= dt
@@ -1273,7 +1305,8 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
       if (g.stage === 'queued') {
         g.waited = (g.waited ?? 0) + dt
         if (queue[0] === g) {
-          g.patience -= dt
+          // While no room is ready they give you time to clean one.
+          g.patience -= dt * (roomState.some((rs) => rs.state === 'ready') ? 1 : ECONOMY.noRoomPatience)
           if (g.patience <= 0) guestLeavesAngry(g)
         }
       }
@@ -1459,13 +1492,13 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
       busHot = S.nextTour
     }
     if (busText === 'BUS IS HERE!' && lastAnnBus !== busText) {
-      if (S.appeal < CURB.noGuestsBelow) hud.announce('THE BUS IS HERE…', `but the motel looks too dirty (curb appeal ${S.appeal}%)`)
+      if (S.appeal < CURB.fewestBelow) hud.announce('BUS IS HERE!', `a dirty lot scares guests off · curb appeal ${S.appeal}%`)
       else if (S.busTourists) hud.announce('TOURISTS!', `x${ECONOMY.touristPay} a night while they are here`)
       else hud.announce('BUS IS HERE!', 'guests are on their way to the office')
       play('announce')
     }
     lastAnnBus = busText
-    hud.setPills({ busText, busHot, cleanSets: S.cleanSets, motelRating: S.rating, curb: S.appeal, curbWarn: S.appeal < CURB.fewerBelow, curbBad: S.appeal < CURB.noGuestsBelow, counter: S.register })
+    hud.setPills({ busText, busHot, cleanSets: S.cleanSets, motelRating: S.rating, curb: S.appeal, curbWarn: S.appeal < CURB.fewerBelow, curbBad: S.appeal < CURB.fewestBelow, counter: S.register })
     const [ot, op, oi] = objective()
     hud.setObjective(ot, op, oi)
     hotbar?.setTrash(S.bag, bagCap())
@@ -1481,17 +1514,18 @@ export function createGame({ scene, camera, renderer, lighting, player, playerGr
     const rush = rushHour(openN)
     let n = Math.max(0, Math.min(free, rndi(...busGuests(openN)) + (tourists ? 1 : 0) + (rush ? PACING.rush.extra : 0)))
     const ap = appealNow()
-    if (rush && n > 0 && ap >= CURB.noGuestsBelow) {
+    if (rush && n > 0 && ap >= CURB.fewestBelow) {
       hud.announce('RUSH HOUR!', `${n} guests are coming · get the rooms ready`, 3)
       play('announce')
     }
-    if (ap < CURB.noGuestsBelow) {
-      n = 0
-      hud.announce('NOBODY GOT OFF THE BUS 😞', `curb appeal ${ap}% · clean the lot, posters and graffiti`, 4)
-      play('error')
+    // A dirty lot trims the bus, never empties it (at least one guest always gets off).
+    if (ap < CURB.fewestBelow && n > 1) {
+      const kept = Math.max(1, Math.round(n * CURB.lowKeep))
+      hud.announce(`ONLY ${kept} GUEST${kept > 1 ? 'S' : ''} GOT OFF`, `curb appeal ${ap}% · clean the lot, posters and graffiti for more`, 4)
+      n = kept
     } else if (ap < CURB.fewerBelow && n > 1) {
       n -= 1
-      hud.toast(`Some guests stayed on the bus · curb appeal ${ap}%`)
+      hud.toast(`1 guest stayed on the bus · curb appeal ${ap}%: clean outside for more`)
     }
     const dp = bus.doorPoint
     for (let i = 0; i < n; i++) setTimeout(() => spawnGuest(dp.x - i * 0.3, dp.z + 0.2, tourists), i * 900)

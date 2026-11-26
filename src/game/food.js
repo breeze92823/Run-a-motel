@@ -434,8 +434,9 @@ export function createFood(ctx) {
       else st.setStatus(`NO ${FOOD[kind].name} ORDERS`, '#1f9a8a')
     }
     // Walk-ins.
-    const fewer = appeal < CURB.fewerBelow ? 1.7 : 1
-    if (appeal >= CURB.noGuestsBelow) walkInT -= (dt * walkInMul()) / fewer
+    // A dirty lot slows walk-ins down (never stops them: someone always wants a coffee).
+    const fewer = appeal < CURB.fewestBelow ? CURB.lowSlow * 2 : appeal < CURB.fewerBelow ? CURB.lowSlow : 1
+    walkInT -= (dt * walkInMul()) / fewer
     if (walkInT <= 0) {
       walkInT = rnd(...FOOD_RULES.walkInEvery)
       if (customers.filter((c) => c.stage !== 'leaving' && c.stage !== 'served').length < FOOD_RULES.walkInMax) spawnWalkIn()

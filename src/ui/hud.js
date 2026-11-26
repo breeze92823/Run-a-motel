@@ -115,7 +115,6 @@ export function createHud({ open }) {
       floatText(pill, `+${money(pending)}`)
       pending = 0
       pulse(pill, 'bump')
-      if (reason !== 'invest') sfx('coins')
     }
   })
   economy.on('change', (why) => {
