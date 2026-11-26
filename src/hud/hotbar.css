@@ -1,0 +1,156 @@
+/* Tool hotbar (hotbar.js): bottom-centre row of slots. The selected slot grows
+   (its neighbours slide aside), turns teal with a white rim, and its icon pops. */
+.hotbar {
+  --slot: clamp(58px, min(7vw, 13.4vh), 136px);
+  --ink: #1b4a41;
+  --rim: #204c43;
+  --cream: #fffbdd;
+  --teal: #62c2b1;
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(10px, 12.2vh, 130px));
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  gap: calc(var(--slot) * 0.1);
+  font-family: 'Fredoka', system-ui, sans-serif;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.hb-slot {
+  --w: var(--slot);
+  position: relative;
+  flex: none;
+  width: var(--w);
+  height: calc(var(--w) * 0.975);
+  box-sizing: border-box;
+  padding: 0;
+  border: calc(var(--slot) * 0.028) solid var(--rim);
+  border-radius: calc(var(--w) * 0.17);
+  background: var(--cream);
+  color: var(--ink);
+  font-family: inherit;
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 calc(var(--slot) * 0.02) calc(var(--slot) * 0.05) rgba(40, 30, 10, 0.18);
+  transition:
+    width 0.24s cubic-bezier(0.34, 1.56, 0.64, 1),
+    height 0.24s cubic-bezier(0.34, 1.56, 0.64, 1),
+    border-radius 0.24s,
+    background-color 0.16s ease-out,
+    border-color 0.16s ease-out,
+    border-width 0.16s ease-out;
+}
+/* Soft disc behind the icon (pale on cream, deeper teal when selected). */
+.hb-slot::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(255, 228, 160, 0.55) 0%, rgba(255, 236, 190, 0.35) 55%, rgba(255, 240, 200, 0) 72%);
+  transition: background 0.16s;
+}
+.hb-slot.sel {
+  --w: calc(var(--slot) * 1.1);
+  height: calc(var(--w) * 1.02);
+  border: calc(var(--slot) * 0.045) solid #fffdf6;
+  background: var(--teal);
+  box-shadow:
+    0 0 0 calc(var(--slot) * 0.008) rgba(150, 120, 80, 0.35),
+    0 calc(var(--slot) * 0.03) calc(var(--slot) * 0.07) rgba(30, 40, 20, 0.25);
+}
+.hb-slot.sel::before {
+  background: radial-gradient(circle, rgba(52, 158, 150, 0.75) 0%, rgba(60, 170, 155, 0.5) 55%, rgba(98, 194, 177, 0) 72%);
+}
+.hb-slot:active {
+  filter: brightness(0.96);
+}
+
+.hb-key {
+  position: absolute;
+  left: 9%;
+  top: 3%;
+  font-weight: 700;
+  font-size: calc(var(--slot) * 0.235);
+  line-height: 1;
+}
+.hb-icon {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  width: 62%;
+  height: 52%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.hb-icon svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 calc(var(--slot) * 0.01) 0 rgba(0, 0, 0, 0.08));
+}
+.hb-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 9%;
+  text-align: center;
+  font-weight: 700;
+  font-size: calc(var(--slot) * 0.2);
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.hb-slot.sel .hb-label {
+  bottom: 10%;
+}
+
+/* Selection: the icon pops and wiggles; a count change bumps the label. */
+.hb-slot.pop .hb-icon {
+  animation: hb-pop 0.36s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+@keyframes hb-pop {
+  0% { transform: translate(-50%, -50%) scale(0.72) rotate(-8deg); }
+  45% { transform: translate(-50%, -50%) scale(1.2) rotate(6deg); }
+  75% { transform: translate(-50%, -50%) scale(0.96) rotate(-2deg); }
+  100% { transform: translate(-50%, -50%) scale(1) rotate(0); }
+}
+.hb-label.bump {
+  animation: hb-bump 0.28s ease-out;
+}
+@keyframes hb-bump {
+  40% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+.hb-label.full {
+  color: #c8362b;
+}
+
+/* Phones in portrait: the bar sits above the jump / run thumb cluster. */
+@media (max-width: 600px) and (orientation: portrait) {
+  .touch-ui .hotbar {
+    --slot: clamp(44px, 13.5vw, 70px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(12px, 3vmin, 24px) + clamp(72px, 20vmin, 100px) + clamp(52px, 14vmin, 70px) + 28px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-slot,
+  .hb-slot::before {
+    transition: none;
+  }
+  .hb-slot.pop .hb-icon,
+  .hb-label.bump {
+    animation: none;
+  }
+}

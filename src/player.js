@@ -3,6 +3,7 @@ import { getYaw, syncYawToPlayer } from './camera.js'
 import { isFirstPerson } from './modes.js'
 import { RAPIER, alpha, onTick, world } from './physics.js'
 import { PHYSICS, PLAYER_DIMS, SPAWN, SPAWN_FACING } from './config.js'
+import { economy } from './economy.js'
 
 // The local player singleton, mutated in place. A kinematic Rapier capsule
 // driven by Rapier's KinematicCharacterController: it slides along walls,
@@ -100,7 +101,8 @@ function step(dt) {
   const scale = len > 1 ? 1 / len : 1
   const wishX = (fwdX * mv.z + rightX * mv.x) * scale
   const wishZ = (fwdZ * mv.z + rightZ * mv.x) * scale
-  const speed = inputState.sprint ? PHYSICS.sprintSpeed : PHYSICS.walkSpeed
+  // Fast Run (shop) multiplies both gaits while it lasts.
+  const speed = (inputState.sprint ? PHYSICS.sprintSpeed : PHYSICS.walkSpeed) * economy.runSpeedMul()
 
   const rate = !player.grounded ? PHYSICS.airAccel : len > 0.01 ? PHYSICS.accel : PHYSICS.decel
   approach2D(player.velocity, wishX * speed, wishZ * speed, rate * dt)

@@ -13,6 +13,34 @@
         "development"
       ],
       "port": 5173
+    },
+    {
+      "name": "dev-shop-ui",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_MODE=true&& npx vite --port 5231 --strictPort --mode development"
+      ],
+      "port": 5231
+    },
+    {
+      "name": "motel-backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "../Run-a-motel-backend",
+        "start"
+      ],
+      "port": 2567
+    },
+    {
+      "name": "dev-motel",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_DEV_MODE=true&& npx vite --port 5240 --strictPort --mode development"
+      ],
+      "port": 5240
     }
   ]
 }

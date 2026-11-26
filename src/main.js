@@ -14,6 +14,17 @@ import { setNeonBloom } from './propkit.js'
 import { buildDefaultCharacter, loadBaseCharacter } from './avatar/character.js'
 import { applyProportions, attachEquippedAccessories } from './avatar/loader.js'
 import { disposeAnimator, makeAnimator } from './avatar/animator.js'
+import { createHotbar } from './hud/hotbar.js'
+import { createHeld } from './held.js'
+import { initUi } from './ui/index.js' // Upgrades / Hiring / Shop windows, money HUD, saves
+import { RAPIER, addFixed } from './physics.js'
+import { buildMotel } from './motel/building.js'
+import { buildMonument, buildRoadSign, buildVacancyBoard } from './motel/signs.js'
+import { buildSite } from './motel/site.js'
+import { buildBus } from './motel/bus.js'
+import { createParticles } from './fx/particles.js'
+import { installAudio, updateAudio } from './fx/sfx.js'
+import { createGame, setPhysics } from './game/game.js'
 
 // Boot order: Bloxity SDK -> renderer -> Rapier (async wasm) -> ground + sky + lighting,
 // player body -> avatar (async, swaps in when ready) -> loop. The SDK is optional at every step.
@@ -71,9 +82,19 @@ bloxity.loadingStep('Starting physics')
 await initPhysics()
 
 lighting = createLighting(scene, renderer, preset)
-const world = createWorld(scene) // the sea and clouds
-buildGround(scene)
+const world = createWorld(scene) // clouds
+buildGround(scene) // desert, dunes, mesas, highway, parking lot
 landColliders()
+
+// --- The motel -------------------------------------------------------------------
+bloxity.loadingStep('Building the motel')
+const motel = buildMotel(scene) // block, rooms, office, laundry, stairs, machines
+const site = buildSite(scene, lighting) // pool, fountain, junk yard, landscaping
+const signs = { road: buildRoadSign(scene), monument: buildMonument(scene, bloxity.displayName?.() || 'Your'), board: buildVacancyBoard(scene) }
+const bus = buildBus(scene)
+const fx = createParticles(scene, preset.particles ?? 1)
+installAudio()
+
 createPlayerBody()
 syncYawToPlayer()
 
@@ -81,6 +102,7 @@ syncYawToPlayer()
 // The Bloxity base rig (player.glb; procedural fallback if it fails), dressed
 // with the signed-in player's equipped cosmetics and body proportions. It
 // rebuilds on customizer edits and sign-in/out.
+const held = createHeld(scene, camera) // the hotbar tool in hand (viewmodel + avatar's hand)
 const playerGroup = new Group()
 scene.add(playerGroup)
 let avatar = null
@@ -94,6 +116,7 @@ function setAvatar(next) {
   avatar = next
   playerGroup.add(avatar)
   animator = makeAnimator(avatar)
+  held.attachAvatar(avatar, animator)
 }
 
 setAvatar(buildDefaultCharacter()) // visible immediately; replaced once the rig loads
@@ -123,7 +146,10 @@ bloxity.subscribeAuth((s) => {
   }
 })
 bloxity.onAvatarChanged(loadAvatar)
-bloxity.onProportionsChanged(() => applyProportions(avatar, bloxity.getProportions()))
+bloxity.onProportionsChanged(() => {
+  applyProportions(avatar, bloxity.getProportions())
+  held.attachAvatar(avatar, animator)
+})
 bloxity.onRespawnRequest(respawn)
 
 // --- Modes + keys --------------------------------------------------------------
@@ -134,6 +160,32 @@ onKey('KeyV', toggleMode)
 onKey('KeyN', () => lighting.toggleDayNight())
 onKey('KeyR', respawn)
 installTouch({ mode: toggleMode, day: () => lighting.toggleDayNight(), respawn })
+
+// --- Tool hotbar (1 bag, 2 sponge, 3 vacuum, 4 mop, 5 brush, 6 hands) ----------
+const hotbar = createHotbar({ onSelect: (id) => held.setTool(id) })
+held.setTool(hotbar.selected)
+
+// --- Game rules (guests, cleaning, laundry, junk yard, staff, bus) -------------------
+setPhysics(addFixed, RAPIER)
+const game = createGame({
+  renderer,
+  scene,
+  camera,
+  lighting,
+  player,
+  playerGroup,
+  motel,
+  site,
+  signs,
+  bus,
+  fx,
+  hotbar,
+  held,
+  playerName: () => {
+    const n = bloxity.displayName?.()
+    return !n || n === 'Offline' ? 'Your' : n
+  },
+})
 
 // --- Loop -------------------------------------------------------------------
 const clock = new Clock()
@@ -158,6 +210,11 @@ renderer.setAnimationLoop(() => {
   })
 
   updateCamera(camera, dt)
+  held.update(dt)
+  game.update(dt, elapsed)
+  fx.setScale(renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360)))
+  fx.update(dt)
+  updateAudio(camera, dt, lighting.isNight() ? 1 : 0)
   world.update(dt, elapsed)
   lighting.update(dt, playerGroup.position)
   postfx.render()
@@ -174,11 +231,13 @@ renderer.setAnimationLoop(() => {
 
 window.addEventListener('beforeunload', bloxity.teardown)
 
+initUi()
+
 // Dev-only console hook, e.g. __game.teleport(-24, 0, 6, Math.PI / 2)
 if (import.meta.env.DEV) {
   const teleport = (x, y, z, facing = player.facing) => {
     resetPlayer({ x, y, z }, facing)
     syncYawToPlayer()
   }
-  window.__game = { player, scene, renderer, camera, postfx, bodies: bodyCount, toggleMode, teleport }
+  window.__game = { player, scene, renderer, camera, postfx, bodies: bodyCount, toggleMode, teleport, hotbar, held, game, motel, site, bus, fx }
 }

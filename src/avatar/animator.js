@@ -4,8 +4,8 @@
 // cycle at two depths, its phase advancing with distance travelled so the feet
 // stay planted at any speed. Writes only to bones and the avatar root's
 // rotation / position.y (the player group owns world placement).
-import { ANIM } from '../config.js'
-import { PlayerRig, PoseBuffer } from './rig.js'
+import { ANIM, HELD } from '../config.js'
+import { BONE_INDEX, PlayerRig, PoseBuffer } from './rig.js'
 
 const TAU = Math.PI * 2
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v)
@@ -44,6 +44,8 @@ class PlayerAnimator {
     this.idleTime = 0
     this.airTime = 0
     this.bank = 0
+    this.hold = 0 // 0/1, set by held.js: right arm raised forward holding a tool
+    this.holdW = 0 // eased toward `hold`
   }
 
   dispose() {
@@ -59,6 +61,7 @@ class PlayerAnimator {
     this.resolveState(dt, input)
     this.writePose(dt, input)
     this.blend(dt)
+    this.applyHold(dt)
     this.rig.applyPose(this.output)
     this.applyVisual(dt, input)
   }
@@ -173,6 +176,20 @@ class PlayerAnimator {
     } else {
       this.output.copyFrom(this.target)
     }
+  }
+
+  // Tool hold: blends the right arm (straight elbow) toward HELD.holdArm over the gait.
+  applyHold(dt) {
+    this.holdW += (this.hold - this.holdW) * (1 - Math.exp(-HELD.holdEase * dt))
+    const w = this.holdW
+    if (w < 0.001) return
+    const r = this.output.rotations
+    const arm = BONE_INDEX.ArmR1 * 3
+    const elbow = BONE_INDEX.ArmR2 * 3
+    r[arm] += (HELD.holdArm.x - r[arm]) * w
+    r[arm + 1] += (0 - r[arm + 1]) * w
+    r[arm + 2] += (HELD.holdArm.z - r[arm + 2]) * w
+    r[elbow] *= 1 - w
   }
 
   applyVisual(dt, input) {

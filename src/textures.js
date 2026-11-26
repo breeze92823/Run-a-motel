@@ -110,7 +110,7 @@ function fieldCanvas(field, size, map = (v) => v) {
 }
 
 // Colour canvas: base hex modulated per pixel by a 0..1 field.
-function tintCanvas(field, size, dark, light) {
+export function tintCanvas(field, size, dark, light) {
   const c = canvas(size)
   const ctx = c.getContext('2d')
   const img = ctx.createImageData(size, size)
@@ -127,7 +127,7 @@ function tintCanvas(field, size, dark, light) {
   return c
 }
 
-function hexRgb(hex) {
+export function hexRgb(hex) {
   const n = parseInt(hex.slice(1), 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }

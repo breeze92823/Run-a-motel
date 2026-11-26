@@ -107,8 +107,11 @@
 
 .touch-top {
   position: absolute;
-  top: calc(var(--safe-t) + var(--pad));
-  right: calc(var(--safe-r) + var(--pad));
+  /* Left edge, mid-height: the top-right holds the money pill, status pills and
+     the U/B/H column, the bottom centre the hotbar. */
+  top: 34%;
+  left: calc(var(--safe-l) + var(--pad));
+  flex-direction: column;
   display: flex;
   gap: 10px;
 }

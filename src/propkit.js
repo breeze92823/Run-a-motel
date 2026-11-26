@@ -61,6 +61,8 @@ export function neon(color, k = NEON.k, extra = {}) {
   m.addEventListener('dispose', () => neonMats.delete(m))
   return m
 }
+// Brightness a neon material should use right now for multiplier k.
+export const neonLevel = (k) => (neonBloom ? k : Math.min(k, NEON.plainMax))
 export function setNeonBloom(on) {
   neonBloom = on
   for (const m of neonMats) applyNeon(m)
